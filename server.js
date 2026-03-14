@@ -40,6 +40,9 @@ app.post("/vapi-webhook", async (req, res) => {
   // The entire webhook payload sent by Vapi
   const payload = req.body;
 
+  // TEMPORARY: print the full payload so we can inspect Vapi's data structure
+  console.log(JSON.stringify(payload, null, 2));
+
   // Divider to make Railway logs easier to read
   console.log("------ WEBHOOK RECEIVED ------");
 
