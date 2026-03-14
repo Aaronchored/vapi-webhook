@@ -120,6 +120,42 @@ app.post("/vapi-webhook", async (req, res) => {
 
 // Start the server on port 3000
 // Railway will expose this to the internet
+
+// ===============================
+// Endpoint for Zapier to fetch the final classified outcome
+// ===============================
+
+app.get('/outcome', (req, res) => {
+
+  // Get the callId from the query parameter
+  const callId = req.query.callId;
+
+  console.log("Outcome request received for callId:", callId);
+
+  // If we don't have a callId, return an error
+  if (!callId) {
+    return res.status(400).json({
+      error: "Missing callId"
+    });
+  }
+
+  // Look up the stored outcome
+  const outcome = callOutcomes[callId];
+
+  // If no outcome exists yet
+  if (!outcome) {
+    return res.json({
+      finalOutcome: null
+    });
+  }
+
+  // Return the outcome to Zapier
+  res.json({
+    finalOutcome: outcome
+  });
+
+});
+
 app.listen(3000, () => {
   console.log("Webhook running on port 3000");
 });
