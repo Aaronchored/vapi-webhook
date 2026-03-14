@@ -9,24 +9,34 @@ app.post("/vapi-webhook", async (req, res) => {
 
   console.log("------ WEBHOOK RECEIVED ------");
 
-  // Correct nested structure
-  const call = payload.message?.artifact?.call || {};
+  // Convert payload to string so we can search it
+  const payloadString = JSON.stringify(payload);
+
+  let endedReason = null;
+
+  if (payloadString.includes("silence-timed-out")) {
+    endedReason = "silence-timed-out";
+  }
+
+  if (payloadString.includes("voicemail")) {
+    endedReason = "voicemail";
+  }
+
+  if (payloadString.includes("customer-hangup")) {
+    endedReason = "customer-hangup";
+  }
+
+  console.log("Detected endedReason:", endedReason);
+
   const messages = payload.message?.artifact?.messages || [];
 
-  const endedReason = call.endedReason;
-  const status = call.status;
-
-  console.log("endedReason:", endedReason);
-  console.log("status:", status);
   console.log("messages.length:", messages.length);
 
   let outcome = null;
 
-  // If a conversation happened
   if (messages.length > 1) {
     console.log("Conversation detected → AI decides outcome");
-  } 
-  else {
+  } else {
 
     if (endedReason === "voicemail") {
       outcome = "STVM";
@@ -38,10 +48,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
     else if (endedReason === "customer-hangup") {
       outcome = "Call Ended Early";
-    }
-
-    else if (status === "failed") {
-      outcome = "Call Failed";
     }
 
     console.log("System classified outcome:", outcome);
