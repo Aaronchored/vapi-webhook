@@ -8,13 +8,47 @@ app.post("/vapi-webhook", async (req, res) => {
   const payload = req.body;
 
   console.log("------ WEBHOOK RECEIVED ------");
-
-  // Show the top level structure
-  console.log("Top level keys:", Object.keys(payload));
-
-  // Print entire payload (shortened view)
-  console.log("Payload preview:");
   console.log(JSON.stringify(payload, null, 2));
+
+  // Correct Vapi structure
+  const call = payload.message?.call || {};
+  const messages = payload.message?.artifact?.messages || [];
+
+  const endedReason = call.endedReason;
+  const status = call.status;
+
+  console.log("endedReason:", endedReason);
+  console.log("status:", status);
+  console.log("messages.length:", messages.length);
+
+  let outcome = null;
+
+  // Conversation happened
+  if (messages.length > 1) {
+    console.log("Conversation detected → AI decides outcome");
+  }
+
+  // System classification
+  else {
+
+    if (endedReason === "voicemail") {
+      outcome = "STVM";
+    }
+
+    else if (endedReason === "silence-timed-out") {
+      outcome = "No Answer";
+    }
+
+    else if (endedReason === "customer-hangup") {
+      outcome = "Call Ended Early";
+    }
+
+    else if (status === "failed") {
+      outcome = "Call Failed";
+    }
+
+    console.log("System classified outcome:", outcome);
+  }
 
   res.sendStatus(200);
 
