@@ -1,23 +1,78 @@
+```javascript
+// ============================================
+// IMPORT EXPRESS
+// Express creates the web server that receives
+// webhook events from Vapi
+// ============================================
 import express from "express";
 
+
+// ============================================
+// CREATE SERVER
+// ============================================
 const app = express();
+
+
+// ============================================
+// ALLOW SERVER TO READ JSON WEBHOOK PAYLOADS
+// ============================================
 app.use(express.json());
 
+
+// ============================================
+// TEMP MEMORY STORAGE
+// Stores outcomes until Zapier retrieves them
+//
+// Example:
+// callOutcomes["019cea..."] = "STVM"
+// ============================================
 const callOutcomes = {};
 
+
+// ============================================
+// VAPI WEBHOOK ENDPOINT
+// Vapi sends call reports here
+// ============================================
 app.post("/vapi-webhook", async (req, res) => {
 
   const payload = req.body;
 
   console.log("------ WEBHOOK RECEIVED ------");
+
+  // Print full payload for debugging
   console.log(JSON.stringify(payload, null, 2));
 
-  // Extract call data
-  const callId = payload.call_id || payload.message?.call?.id || "unknown";
-  const assistantId = payload.assistant_id || payload.message?.assistant?.id || "unknown";
-  const phoneNumber = payload.phone_number || payload.message?.call?.phoneNumber || "unknown";
 
-  const messages = payload.message?.artifact?.messages || [];
+  // ============================================
+  // EXTRACT IMPORTANT CALL DATA
+  // ============================================
+
+  const callId =
+    payload.call_id ||
+    payload.message?.call?.id ||
+    "unknown";
+
+  const assistantId =
+    payload.assistant_id ||
+    payload.message?.assistant?.id ||
+    "unknown";
+
+  const phoneNumber =
+    payload.phone_number ||
+    payload.message?.call?.phoneNumber ||
+    "unknown";
+
+  const messages =
+    payload.message?.artifact?.messages || [];
+
+  const duration =
+    payload.message?.call?.duration || 0;
+
+
+  // ============================================
+  // DETECT HOW CALL ENDED
+  // (simple keyword scan of payload)
+  // ============================================
 
   const payloadString = JSON.stringify(payload);
 
@@ -35,11 +90,10 @@ app.post("/vapi-webhook", async (req, res) => {
     endedReason = "customer-hangup";
   }
 
-  console.log("callId:", callId);
-  console.log("assistantId:", assistantId);
-  console.log("phoneNumber:", phoneNumber);
-  console.log("Detected endedReason:", endedReason);
-  console.log("messages.length:", messages.length);
+
+  // ============================================
+  // DETERMINE SYSTEM OUTCOME
+  // ============================================
 
   let outcome = null;
 
@@ -59,16 +113,57 @@ app.post("/vapi-webhook", async (req, res) => {
     console.log("Conversation detected → AI decides outcome");
   }
 
-  console.log("System classified outcome:", outcome);
+
+  // ============================================
+  // STRUCTURED CALL REPORT LOG
+  // Much easier to read when running
+  // multiple callers simultaneously
+  // ============================================
+
+  console.log("=================================");
+  console.log("CALL REPORT");
+
+  console.log("callId:", callId);
+  console.log("assistantId:", assistantId);
+  console.log("phoneNumber:", phoneNumber);
+
+  console.log("");
+
+  console.log("duration:", duration);
+  console.log("endedReason:", endedReason);
+  console.log("messages:", messages.length);
+
+  console.log("");
+
+  console.log("finalOutcome:", outcome);
+
+  console.log("=================================");
+
+
+  // ============================================
+  // STORE OUTCOME IN MEMORY
+  // Zapier will fetch this using callId
+  // ============================================
 
   if (callId !== "unknown" && outcome) {
     callOutcomes[callId] = outcome;
   }
 
+
+  // ============================================
+  // ACKNOWLEDGE WEBHOOK RECEIVED
+  // ============================================
+
   res.sendStatus(200);
 
 });
 
+
+
+// ============================================
+// ZAPIER OUTCOME RETRIEVAL ENDPOINT
+// Zapier calls this to retrieve final outcome
+// ============================================
 
 app.get("/outcome", (req, res) => {
 
@@ -90,8 +185,16 @@ app.get("/outcome", (req, res) => {
     });
   }
 
+
+  // ============================================
+  // DELETE AFTER RETRIEVAL
+  // Prevents memory buildup and stale data
+  // ============================================
+
   delete callOutcomes[callId];
 
+
+  // Return final outcome to Zapier
   res.json({
     finalOutcome: outcome
   });
@@ -99,6 +202,13 @@ app.get("/outcome", (req, res) => {
 });
 
 
+
+// ============================================
+// START SERVER
+// Railway exposes port 3000 publicly
+// ============================================
+
 app.listen(3000, () => {
   console.log("Webhook running on port 3000");
 });
+```
