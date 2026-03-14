@@ -1,34 +1,42 @@
-const messages = call.messages || [];
-const endedReason = call.endedReason;
-const status = call.status;
+import express from "express";
+import fetch from "node-fetch";
 
-let outcome = null;
+const app = express();
+app.use(express.json());
 
-// conversation happened
-if (messages.length > 1) {
-  console.log("Conversation detected → AI decides outcome");
-}
+app.post("/vapi-webhook", async (req, res) => {
+  const call = req.body;
 
-// system outcome classification
-else {
+  const messages = call.messages || [];
+  const endedReason = call.endedReason;
+  const status = call.status;
 
-  if (endedReason === "voicemail") {
-    outcome = "STVM";
-  }
+  let outcome = null;
 
-  else if (endedReason === "silence-timed-out") {
-    outcome = "No Answer";
-  }
+  // If a real conversation happened, let AI decide outcome
+  if (messages.length > 1) {
+    console.log("Conversation detected → AI decides outcome");
+  } else {
+    // System outcomes decided by webhook
+    if (endedReason === "voicemail") {
+      outcome = "STVM";
+    } else if (endedReason === "silence-timed-out") {
+      outcome = "No Answer";
+    } else if (endedReason === "customer-hangup") {
+      outcome = "Call Ended Early";
+    } else if (status === "failed") {
+      outcome = "Call Failed";
+    }
 
-  else if (endedReason === "customer-hangup") {
-    outcome = "Call Ended Early";
-  }
-
-  else if (status === "failed") {
-    outcome = "Call Failed";
-  }
-
-  if (outcome) {
+    console.log("endedReason:", endedReason);
+    console.log("status:", status);
+    console.log("messages.length:", messages.length);
     console.log("System classified outcome:", outcome);
   }
-}
+
+  res.sendStatus(200);
+});
+
+app.listen(3000, () => {
+  console.log("Webhook running on port 3000");
+});
