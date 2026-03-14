@@ -1,46 +1,52 @@
-```javascript
 // ============================================
 // IMPORT EXPRESS
+// Express is the web server framework
 // ============================================
 import express from "express";
 
 
 // ============================================
-// CREATE SERVER
+// CREATE SERVER INSTANCE
 // ============================================
 const app = express();
 
 
 // ============================================
-// ALLOW SERVER TO READ JSON WEBHOOK PAYLOADS
+// JSON BODY PARSER
+// Allows the server to read webhook JSON payloads
+// limit prevents extremely large payload crashes
 // ============================================
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 
 // ============================================
-// TEMP MEMORY STORAGE
-// Stores outcomes until Zapier retrieves them
+// TEMPORARY MEMORY STORAGE
+// Stores call outcomes until Zapier retrieves them
+// Key = callId
+// Value = outcome
 // ============================================
 const callOutcomes = {};
 
 
 // ============================================
 // VAPI WEBHOOK ENDPOINT
+// This receives events from Vapi when calls end
 // ============================================
 app.post("/vapi-webhook", async (req, res) => {
 
   try {
 
-    const payload = req.body;
+    // ============================================
+    // GET WEBHOOK PAYLOAD
+    // ============================================
+    const payload = req.body || {};
 
-    console.log("------ WEBHOOK RECEIVED ------");
-
-    // Print full payload for debugging
-    console.log(JSON.stringify(payload, null, 2));
+    console.log("------ VAPI WEBHOOK RECEIVED ------");
 
 
     // ============================================
-    // EXTRACT IMPORTANT CALL DATA SAFELY
+    // SAFELY EXTRACT CALL DATA
+    // Optional chaining prevents crashes
     // ============================================
 
     const callId =
@@ -66,51 +72,74 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // DETECT HOW CALL ENDED
+    // DETECT HOW THE CALL ENDED
+    // Try structured data first
+    // Fallback to string scan if needed
     // ============================================
 
-    const payloadString = JSON.stringify(payload);
+    let endedReason =
+      payload?.message?.call?.endedReason ||
+      payload?.endedReason ||
+      null;
 
-    let endedReason = null;
 
-    if (payloadString.includes("voicemail")) {
-      endedReason = "voicemail";
-    }
+    // fallback detection if provider changes structure
+    if (!endedReason) {
 
-    if (payloadString.includes("silence-timed-out")) {
-      endedReason = "silence-timed-out";
-    }
+      const payloadString = JSON.stringify(payload);
 
-    if (payloadString.includes("customer-hangup")) {
-      endedReason = "customer-hangup";
+      if (payloadString.includes("voicemail")) {
+        endedReason = "voicemail";
+      }
+
+      else if (payloadString.includes("silence-timed-out")) {
+        endedReason = "silence-timed-out";
+      }
+
+      else if (payloadString.includes("customer-hangup")) {
+        endedReason = "customer-hangup";
+      }
+
     }
 
 
     // ============================================
     // DETERMINE SYSTEM OUTCOME
+    // Only applies if no real conversation occurred
     // ============================================
 
     let outcome = null;
 
     if (endedReason === "voicemail") {
+
       outcome = "STVM";
+
     }
 
     else if (endedReason === "silence-timed-out") {
+
       outcome = "No Answer";
+
     }
 
     else if (endedReason === "customer-hangup") {
+
       outcome = "Call Ended Early";
+
     }
 
     else if (messages.length > 1) {
+
+      // conversation happened
+      // AI structured output should determine outcome
       console.log("Conversation detected → AI decides outcome");
+
     }
 
 
     // ============================================
-    // STRUCTURED CALL REPORT LOG
+    // PRINT CLEAN CALL REPORT
+    // Structured logs help debugging later
     // ============================================
 
     console.log("=================================");
@@ -120,13 +149,9 @@ app.post("/vapi-webhook", async (req, res) => {
     console.log("assistantId:", assistantId);
     console.log("phoneNumber:", phoneNumber);
 
-    console.log("");
-
     console.log("duration:", duration);
-    console.log("endedReason:", endedReason);
     console.log("messages:", messages.length);
-
-    console.log("");
+    console.log("endedReason:", endedReason);
 
     console.log("finalOutcome:", outcome);
 
@@ -134,18 +159,29 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // STORE OUTCOME IN MEMORY
+    // STORE OUTCOME IN TEMP MEMORY
+    // Only store if we have a valid callId + outcome
     // ============================================
 
     if (callId !== "unknown" && outcome) {
+
       callOutcomes[callId] = outcome;
+
+      console.log("Outcome stored for:", callId);
+
     }
 
 
-    // Respond to Vapi
+    // ============================================
+    // RESPOND TO VAPI
+    // Must return 200 or webhook will retry
+    // ============================================
+
     res.sendStatus(200);
 
-  } catch (error) {
+  }
+
+  catch (error) {
 
     console.error("Webhook processing error:", error);
 
@@ -159,40 +195,70 @@ app.post("/vapi-webhook", async (req, res) => {
 
 // ============================================
 // ZAPIER OUTCOME RETRIEVAL ENDPOINT
+// Zapier calls this to retrieve call outcome
 // ============================================
-
 app.get("/outcome", (req, res) => {
 
   try {
 
     const callId = req.query.callId;
 
-    console.log("Outcome request received for callId:", callId);
+    console.log("Outcome request for callId:", callId);
+
+
+    // ============================================
+    // VALIDATE REQUEST
+    // ============================================
 
     if (!callId) {
+
       return res.status(400).json({
         error: "Missing callId"
       });
+
     }
+
+
+    // ============================================
+    // GET OUTCOME FROM MEMORY
+    // ============================================
 
     const outcome = callOutcomes[callId];
 
+
+    // ============================================
+    // IF OUTCOME NOT READY YET
+    // Zapier should retry later
+    // ============================================
+
     if (!outcome) {
+
       return res.json({
         finalOutcome: null
       });
+
     }
 
 
-    // delete after retrieval
+    // ============================================
+    // DELETE AFTER RETRIEVAL
+    // Prevents duplicate processing
+    // ============================================
+
     delete callOutcomes[callId];
 
+
+    // ============================================
+    // RETURN OUTCOME
+    // ============================================
 
     res.json({
       finalOutcome: outcome
     });
 
-  } catch (error) {
+  }
+
+  catch (error) {
 
     console.error("Outcome retrieval error:", error);
 
@@ -206,11 +272,30 @@ app.get("/outcome", (req, res) => {
 
 // ============================================
 // HEALTH CHECK ROUTE
-// (helps Railway confirm server is alive)
+// Railway uses this to verify server is alive
 // ============================================
-
 app.get("/", (req, res) => {
+
   res.send("Server running");
+
+});
+
+
+
+// ============================================
+// GLOBAL ERROR HANDLER
+// Prevents Railway crashes from uncaught errors
+// ============================================
+process.on("uncaughtException", (err) => {
+
+  console.error("Uncaught Exception:", err);
+
+});
+
+process.on("unhandledRejection", (err) => {
+
+  console.error("Unhandled Promise Rejection:", err);
+
 });
 
 
@@ -222,6 +307,7 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Webhook running on port ${PORT}`);
+
+  console.log(`Webhook server running on port ${PORT}`);
+
 });
-```
