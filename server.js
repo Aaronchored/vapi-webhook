@@ -7,6 +7,8 @@ const app = express();
 // Allow the server to read JSON data that Vapi sends
 app.use(express.json());
 
+// store outcomes temporarily in memory
+const callOutcomes = {};
 
 // This is the webhook endpoint Vapi will send call events to
 // Whenever a call ends, Vapi sends a POST request here
