@@ -8,10 +8,9 @@ app.post("/vapi-webhook", async (req, res) => {
   const payload = req.body;
 
   console.log("------ WEBHOOK RECEIVED ------");
-  console.log(JSON.stringify(payload, null, 2));
 
-  // Correct Vapi structure
-  const call = payload.message?.call || {};
+  // Correct nested structure
+  const call = payload.message?.artifact?.call || {};
   const messages = payload.message?.artifact?.messages || [];
 
   const endedReason = call.endedReason;
@@ -23,12 +22,10 @@ app.post("/vapi-webhook", async (req, res) => {
 
   let outcome = null;
 
-  // Conversation happened
+  // If a conversation happened
   if (messages.length > 1) {
     console.log("Conversation detected → AI decides outcome");
-  }
-
-  // System classification
+  } 
   else {
 
     if (endedReason === "voicemail") {
