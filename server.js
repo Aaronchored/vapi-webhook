@@ -1,4 +1,3 @@
-```javascript
 // ============================================
 // IMPORT EXPRESS
 // Express creates the web server that receives
