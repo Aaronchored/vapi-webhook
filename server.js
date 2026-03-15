@@ -144,24 +144,24 @@ app.post("/vapi-webhook", async (req, res) => {
     // CLEAN SINGLE LOG BLOCK
     // ============================================
 
-    const logBlock = `
-=================================
-FINAL CALL REPORT
-
-callId: ${callId}
-assistantId: ${assistantId}
-phoneNumber: ${phoneNumber}
-
-duration: ${duration}
-messages: ${messages.length}
-
-endedReason: ${endedReason}
-aiOutcomeDetected: ${aiOutcomeExists}
-
-systemOutcome: ${outcome}
-
-=================================
-`;
+    const logBlock = [
+      "=================================",
+      "FINAL CALL REPORT",
+      "",
+      `callId: ${callId}`,
+      `assistantId: ${assistantId}`,
+      `phoneNumber: ${phoneNumber}`,
+      "",
+      `duration: ${duration}`,
+      `messages: ${messages.length}`,
+      "",
+      `endedReason: ${endedReason}`,
+      `aiOutcomeDetected: ${aiOutcomeExists}`,
+      "",
+      `systemOutcome: ${outcome}`,
+      "",
+      "================================="
+    ].join("\n");
 
     console.log(logBlock);
 
