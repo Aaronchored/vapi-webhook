@@ -1,30 +1,15 @@
-// ============================================
-// IMPORT EXPRESS
-// ============================================
 import express from "express";
 
-
-// ============================================
-// CREATE SERVER
-// ============================================
 const app = express();
 
-
-// ============================================
-// ALLOW JSON PAYLOADS
-// ============================================
 app.use(express.json({ limit: "1mb" }));
 
-
-// ============================================
-// TEMP MEMORY STORAGE
-// ============================================
+// store outcomes
 const callOutcomes = {};
 
+// track processed calls so duplicates are ignored
+const processedCalls = new Set();
 
-// ============================================
-// VAPI WEBHOOK ENDPOINT
-// ============================================
 app.post("/vapi-webhook", async (req, res) => {
 
   try {
@@ -33,22 +18,22 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const eventType = payload?.message?.type || "unknown";
 
-
-    // ============================================
-    // IGNORE NON FINAL EVENTS
-    // ============================================
+    // only process final reports
     if (eventType !== "end-of-call-report") {
       return res.sendStatus(200);
     }
 
-
-    // ============================================
-    // EXTRACT CALL DATA
-    // ============================================
     const callId =
       payload?.call_id ||
       payload?.message?.call?.id ||
       "unknown";
+
+    // ignore duplicates
+    if (processedCalls.has(callId)) {
+      return res.sendStatus(200);
+    }
+
+    processedCalls.add(callId);
 
     const assistantId =
       payload?.assistant_id ||
@@ -66,10 +51,6 @@ app.post("/vapi-webhook", async (req, res) => {
     const duration =
       payload?.message?.call?.duration || 0;
 
-
-    // ============================================
-    // DETECT ENDED REASON
-    // ============================================
     let endedReason =
       payload?.message?.call?.endedReason ||
       payload?.endedReason ||
@@ -93,10 +74,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
     }
 
-
-    // ============================================
-    // DETERMINE OUTCOME
-    // ============================================
     let outcome = null;
 
     if (endedReason === "voicemail") {
@@ -115,46 +92,27 @@ app.post("/vapi-webhook", async (req, res) => {
       outcome = "Conversation";
     }
 
-
-    // ============================================
-    // STORE OUTCOME
-    // ============================================
     if (callId !== "unknown" && outcome) {
       callOutcomes[callId] = outcome;
     }
 
+    // clean log block
+    console.log(`
+=================================
+FINAL CALL REPORT
 
-    // ============================================
-    // BUILD CLEAN LOG BLOCK
-    // ============================================
-    const log = [];
+callId: ${callId}
+assistantId: ${assistantId}
+phoneNumber: ${phoneNumber}
 
-    log.push("=================================");
-    log.push("FINAL CALL REPORT");
+duration: ${duration}
+messages: ${messages.length}
+endedReason: ${endedReason}
 
-    log.push(`callId: ${callId}`);
-    log.push(`assistantId: ${assistantId}`);
-    log.push(`phoneNumber: ${phoneNumber}`);
+finalOutcome: ${outcome}
 
-    log.push("");
-
-    log.push(`duration: ${duration}`);
-    log.push(`messages: ${messages.length}`);
-    log.push(`endedReason: ${endedReason}`);
-
-    log.push("");
-
-    log.push(`finalOutcome: ${outcome}`);
-
-    if (outcome) {
-      log.push(`outcomeStored: true`);
-    }
-
-    log.push("=================================");
-
-
-    console.log(log.join("\n"));
-
+=================================
+`);
 
     res.sendStatus(200);
 
@@ -170,10 +128,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
 });
 
-
-// ============================================
-// ZAPIER OUTCOME RETRIEVAL
-// ============================================
 app.get("/outcome", (req, res) => {
 
   try {
@@ -206,30 +160,10 @@ app.get("/outcome", (req, res) => {
 
 });
 
-
-// ============================================
-// HEALTH CHECK
-// ============================================
 app.get("/", (req, res) => {
   res.send("Server running");
 });
 
-
-// ============================================
-// CRASH PROTECTION
-// ============================================
-process.on("uncaughtException", err => {
-  console.error("Uncaught Exception:", err);
-});
-
-process.on("unhandledRejection", err => {
-  console.error("Unhandled Rejection:", err);
-});
-
-
-// ============================================
-// START SERVER
-// ============================================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
