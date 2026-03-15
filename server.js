@@ -4,12 +4,18 @@ const app = express();
 
 app.use(express.json({ limit: "1mb" }));
 
-// store outcomes
+// ============================================
+// TEMP STORAGE FOR OUTCOMES
+// ============================================
 const callOutcomes = {};
 
-// track processed calls so duplicates are ignored
+// prevent duplicate webhook processing
 const processedCalls = new Set();
 
+
+// ============================================
+// VAPI WEBHOOK ENDPOINT
+// ============================================
 app.post("/vapi-webhook", async (req, res) => {
 
   try {
@@ -18,7 +24,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const eventType = payload?.message?.type || "unknown";
 
-    // only process final reports
+    // only process final call reports
     if (eventType !== "end-of-call-report") {
       return res.sendStatus(200);
     }
@@ -28,12 +34,13 @@ app.post("/vapi-webhook", async (req, res) => {
       payload?.message?.call?.id ||
       "unknown";
 
-    // ignore duplicates
+    // prevent duplicate processing
     if (processedCalls.has(callId)) {
       return res.sendStatus(200);
     }
 
     processedCalls.add(callId);
+
 
     const assistantId =
       payload?.assistant_id ||
@@ -51,52 +58,77 @@ app.post("/vapi-webhook", async (req, res) => {
     const duration =
       payload?.message?.call?.duration || 0;
 
+
+    // ============================================
+    // CHECK IF AI ALREADY PRODUCED AN OUTCOME
+    // ============================================
+
+    const structuredOutputs =
+      payload?.message?.artifact?.structuredOutputs || {};
+
+    const aiOutcomeExists =
+      structuredOutputs && Object.keys(structuredOutputs).length > 0;
+
+
+    let outcome = null;
     let endedReason =
       payload?.message?.call?.endedReason ||
       payload?.endedReason ||
       null;
 
-    if (!endedReason) {
 
-      const payloadString = JSON.stringify(payload);
+    // ============================================
+    // ONLY CLASSIFY TELEPHONY OUTCOME
+    // IF NO AI OUTCOME EXISTS
+    // ============================================
 
-      if (payloadString.includes("voicemail")) {
-        endedReason = "voicemail";
+    if (!aiOutcomeExists) {
+
+      if (!endedReason) {
+
+        const payloadString = JSON.stringify(payload);
+
+        if (payloadString.includes("voicemail")) {
+          endedReason = "voicemail";
+        }
+
+        else if (payloadString.includes("silence-timed-out")) {
+          endedReason = "silence-timed-out";
+        }
+
+        else if (payloadString.includes("customer-hangup")) {
+          endedReason = "customer-hangup";
+        }
+
       }
 
-      else if (payloadString.includes("silence-timed-out")) {
-        endedReason = "silence-timed-out";
+      if (endedReason === "voicemail") {
+        outcome = "STVM";
       }
 
-      else if (payloadString.includes("customer-hangup")) {
-        endedReason = "customer-hangup";
+      else if (endedReason === "silence-timed-out") {
+        outcome = "No Answer";
+      }
+
+      else if (endedReason === "customer-hangup") {
+        outcome = "Call Ended Early";
+      }
+
+      else if (messages.length > 1) {
+        outcome = "Conversation";
+      }
+
+      if (callId !== "unknown" && outcome) {
+        callOutcomes[callId] = outcome;
       }
 
     }
 
-    let outcome = null;
 
-    if (endedReason === "voicemail") {
-      outcome = "STVM";
-    }
+    // ============================================
+    // CLEAN LOG BLOCK
+    // ============================================
 
-    else if (endedReason === "silence-timed-out") {
-      outcome = "No Answer";
-    }
-
-    else if (endedReason === "customer-hangup") {
-      outcome = "Call Ended Early";
-    }
-
-    else if (messages.length > 1) {
-      outcome = "Conversation";
-    }
-
-    if (callId !== "unknown" && outcome) {
-      callOutcomes[callId] = outcome;
-    }
-
-    // clean log block
     console.log(`
 =================================
 FINAL CALL REPORT
@@ -109,10 +141,13 @@ duration: ${duration}
 messages: ${messages.length}
 endedReason: ${endedReason}
 
-finalOutcome: ${outcome}
+aiOutcomeDetected: ${aiOutcomeExists}
+
+systemOutcome: ${outcome}
 
 =================================
 `);
+
 
     res.sendStatus(200);
 
@@ -128,6 +163,10 @@ finalOutcome: ${outcome}
 
 });
 
+
+// ============================================
+// OUTCOME RETRIEVAL ENDPOINT (ZAPIER)
+// ============================================
 app.get("/outcome", (req, res) => {
 
   try {
@@ -160,10 +199,18 @@ app.get("/outcome", (req, res) => {
 
 });
 
+
+// ============================================
+// HEALTH CHECK
+// ============================================
 app.get("/", (req, res) => {
   res.send("Server running");
 });
 
+
+// ============================================
+// START SERVER
+// ============================================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
