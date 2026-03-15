@@ -175,6 +175,8 @@ app.post("/vapi-webhook", async (req, res) => {
 
     if (ZAP3_WEBHOOK_URL) {
 
+      console.log("Triggering Zap 3 webhook:", ZAP3_WEBHOOK_URL);
+
       await fetch(ZAP3_WEBHOOK_URL, {
         method: "POST",
         headers: {
