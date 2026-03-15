@@ -166,7 +166,19 @@ app.post("/vapi-webhook", async (req, res) => {
     ].join("\n");
 
     console.log(logBlock);
-
+    
+// trigger Zap 3
+await fetch(ZAP3_WEBHOOK_URL, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    callId: callId,
+    systemOutcome: outcome,
+    aiOutcomeDetected: aiOutcomeExists
+  })
+});
 
     res.sendStatus(200);
 
