@@ -1,23 +1,21 @@
 import express from "express";
-
-const ZAP3_WEBHOOK_URL = process.env.ZAP_3_WEBHOOK;
-
-console.log("Zap3 webhook loaded:", ZAP3_WEBHOOK_URL);
-
-const app = express();
-
-app.use(express.json({ limit: "1mb" }));
+import fetch from "node-fetch";
 
 // ============================================
 // ZAP 3 WEBHOOK (from Railway environment variable)
 // ============================================
 const ZAP3_WEBHOOK_URL = process.env.ZAP_3_WEBHOOK;
 
+const app = express();
+
+app.use(express.json({ limit: "1mb" }));
+
 
 // ============================================
 // TEMP STORAGE FOR OUTCOMES
 // ============================================
 const callOutcomes = {};
+
 
 // prevent duplicate webhook processing
 const processedCalls = new Set();
@@ -179,7 +177,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
     if (ZAP3_WEBHOOK_URL) {
 
-      console.log("Triggering Zap 3 webhook:", ZAP3_WEBHOOK_URL);
+      console.log("Triggering Zap 3 webhook");
 
       await fetch(ZAP3_WEBHOOK_URL, {
         method: "POST",
