@@ -1,5 +1,7 @@
 import express from "express";
 
+const ZAP3_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25227143/uxjvd85/";
+
 const app = express();
 
 app.use(express.json({ limit: "1mb" }));
