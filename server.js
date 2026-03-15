@@ -14,6 +14,14 @@ const processedCalls = new Set();
 
 
 // ============================================
+// CLEANUP MEMORY (prevents memory growth)
+// ============================================
+setInterval(() => {
+  processedCalls.clear();
+}, 60 * 60 * 1000); // clear every hour
+
+
+// ============================================
 // VAPI WEBHOOK ENDPOINT
 // ============================================
 app.post("/vapi-webhook", async (req, res) => {
@@ -42,6 +50,10 @@ app.post("/vapi-webhook", async (req, res) => {
     processedCalls.add(callId);
 
 
+    // ============================================
+    // EXTRACT BASIC CALL DATA
+    // ============================================
+
     const assistantId =
       payload?.assistant_id ||
       payload?.message?.assistant?.id ||
@@ -60,7 +72,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // CHECK IF AI ALREADY PRODUCED AN OUTCOME
+    // CHECK IF AI PRODUCED STRUCTURED OUTPUT
     // ============================================
 
     const structuredOutputs =
@@ -71,6 +83,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     let outcome = null;
+
     let endedReason =
       payload?.message?.call?.endedReason ||
       payload?.endedReason ||
@@ -78,12 +91,12 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // ONLY CLASSIFY TELEPHONY OUTCOME
-    // IF NO AI OUTCOME EXISTS
+    // TELEPHONY CLASSIFICATION (ONLY IF NO AI OUTCOME)
     // ============================================
 
     if (!aiOutcomeExists) {
 
+      // fallback detection if endedReason missing
       if (!endedReason) {
 
         const payloadString = JSON.stringify(payload);
@@ -102,6 +115,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
       }
 
+      // outcome classification
       if (endedReason === "voicemail") {
         outcome = "STVM";
       }
@@ -118,6 +132,7 @@ app.post("/vapi-webhook", async (req, res) => {
         outcome = "Conversation";
       }
 
+      // store outcome for Zap retrieval
       if (callId !== "unknown" && outcome) {
         callOutcomes[callId] = outcome;
       }
@@ -126,10 +141,10 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // CLEAN LOG BLOCK
+    // CLEAN SINGLE LOG BLOCK
     // ============================================
 
-    console.log(`
+    const logBlock = `
 =================================
 FINAL CALL REPORT
 
@@ -139,14 +154,16 @@ phoneNumber: ${phoneNumber}
 
 duration: ${duration}
 messages: ${messages.length}
-endedReason: ${endedReason}
 
+endedReason: ${endedReason}
 aiOutcomeDetected: ${aiOutcomeExists}
 
 systemOutcome: ${outcome}
 
 =================================
-`);
+`;
+
+    console.log(logBlock);
 
 
     res.sendStatus(200);
@@ -174,18 +191,25 @@ app.get("/outcome", (req, res) => {
     const callId = req.query.callId;
 
     if (!callId) {
-      return res.status(400).json({ error: "Missing callId" });
+      return res.status(400).json({
+        error: "Missing callId"
+      });
     }
 
     const outcome = callOutcomes[callId];
 
     if (!outcome) {
-      return res.json({ finalOutcome: null });
+      return res.json({
+        finalOutcome: null
+      });
     }
 
+    // remove after retrieval
     delete callOutcomes[callId];
 
-    res.json({ finalOutcome: outcome });
+    res.json({
+      finalOutcome: outcome
+    });
 
   }
 
