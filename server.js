@@ -4,7 +4,11 @@ import fetch from "node-fetch";
 // ============================================
 // ZAP 3 WEBHOOK (from Railway environment variable)
 // ============================================
-const ZAP3_WEBHOOK_URL = process.env.ZAP_3_WEBHOOK;
+
+const ZAP3_WEBHOOK_URL =
+  process.env.ZAP_3_WEBHOOK ||
+  process.env.ZAP3_WEBHOOK ||
+  process.env.ZAP_3_WEBHOOK_URL;
 
 const app = express();
 
