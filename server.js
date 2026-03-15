@@ -1,5 +1,9 @@
 import express from "express";
 
+const ZAP3_WEBHOOK_URL = process.env.ZAP_3_WEBHOOK;
+
+console.log("Zap3 webhook loaded:", ZAP3_WEBHOOK_URL);
+
 const app = express();
 
 app.use(express.json({ limit: "1mb" }));
