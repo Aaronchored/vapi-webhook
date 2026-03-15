@@ -1,15 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
 
-// ============================================
-// ZAP 3 WEBHOOK (from Railway environment variable)
-// ============================================
-
-const ZAP3_WEBHOOK_URL =
-  process.env.ZAP_3_WEBHOOK ||
-  process.env.ZAP3_WEBHOOK ||
-  process.env.ZAP_3_WEBHOOK_URL;
-
 const app = express();
 
 app.use(express.json({ limit: "1mb" }));
@@ -84,7 +75,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // DETECT REAL AI OUTCOME (NOT JUST STRUCTURED OUTPUT EXISTING)
+    // DETECT REAL AI OUTCOME
     // ============================================
 
     const structuredOutputs =
@@ -109,7 +100,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // TELEPHONY CLASSIFICATION (ONLY IF NO AI OUTCOME)
+    // TELEPHONY CLASSIFICATION
     // ============================================
 
     if (!aiOutcomeExists) {
@@ -183,10 +174,11 @@ app.post("/vapi-webhook", async (req, res) => {
 
     // ============================================
     // TRIGGER ZAP 3
-    // always attempt to send signal so Catch Hook can fire
     // ============================================
 
-    if (!ZAP3_WEBHOOK_URL) {
+    const zapWebhook = process.env.ZAP_3_WEBHOOK;
+
+    if (!zapWebhook) {
 
       console.error("Zap 3 webhook URL missing: ZAP_3_WEBHOOK is not set");
 
@@ -196,15 +188,17 @@ app.post("/vapi-webhook", async (req, res) => {
 
         console.log("Triggering Zap 3 webhook");
 
-        const zapResponse = await fetch(ZAP3_WEBHOOK_URL, {
+        const zapResponse = await fetch(zapWebhook, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            callId: callId,
+            callId,
             systemOutcome: outcome,
-            aiOutcomeDetected: aiOutcomeExists
+            aiOutcomeDetected: aiOutcomeExists,
+            phoneNumber,
+            duration
           })
         });
 
