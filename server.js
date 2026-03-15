@@ -80,14 +80,20 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // CHECK IF AI PRODUCED STRUCTURED OUTPUT
+    // DETECT REAL AI OUTCOME (NOT JUST STRUCTURED OUTPUT EXISTING)
     // ============================================
 
     const structuredOutputs =
       payload?.message?.artifact?.structuredOutputs || {};
 
-    const aiOutcomeExists =
-      structuredOutputs && Object.keys(structuredOutputs).length > 0;
+    let aiOutcomeExists = false;
+
+    for (const key in structuredOutputs) {
+      if (structuredOutputs[key]?.result) {
+        aiOutcomeExists = true;
+        break;
+      }
+    }
 
 
     let outcome = null;
@@ -173,23 +179,38 @@ app.post("/vapi-webhook", async (req, res) => {
 
     // ============================================
     // TRIGGER ZAP 3
+    // always attempt to send signal so Catch Hook can fire
     // ============================================
 
-    if (ZAP3_WEBHOOK_URL) {
+    if (!ZAP3_WEBHOOK_URL) {
 
-      console.log("Triggering Zap 3 webhook");
+      console.error("Zap 3 webhook URL missing: ZAP_3_WEBHOOK is not set");
 
-      await fetch(ZAP3_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          callId: callId,
-          systemOutcome: outcome,
-          aiOutcomeDetected: aiOutcomeExists
-        })
-      });
+    } else {
+
+      try {
+
+        console.log("Triggering Zap 3 webhook");
+
+        const zapResponse = await fetch(ZAP3_WEBHOOK_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            callId: callId,
+            systemOutcome: outcome,
+            aiOutcomeDetected: aiOutcomeExists
+          })
+        });
+
+        console.log(`Zap 3 webhook response: ${zapResponse.status}`);
+
+      } catch (zapError) {
+
+        console.error("Zap 3 webhook FAILED:", zapError);
+
+      }
 
     }
 
