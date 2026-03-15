@@ -5,6 +5,12 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 // ============================================
+// ZAP 3 WEBHOOK (from Railway environment variable)
+// ============================================
+const ZAP3_WEBHOOK_URL = process.env.ZAP_3_WEBHOOK;
+
+
+// ============================================
 // TEMP STORAGE FOR OUTCOMES
 // ============================================
 const callOutcomes = {};
@@ -96,7 +102,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
     if (!aiOutcomeExists) {
 
-      // fallback detection if endedReason missing
       if (!endedReason) {
 
         const payloadString = JSON.stringify(payload);
@@ -115,7 +120,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
       }
 
-      // outcome classification
       if (endedReason === "voicemail") {
         outcome = "STVM";
       }
@@ -132,7 +136,6 @@ app.post("/vapi-webhook", async (req, res) => {
         outcome = "Conversation";
       }
 
-      // store outcome for Zap retrieval
       if (callId !== "unknown" && outcome) {
         callOutcomes[callId] = outcome;
       }
@@ -164,19 +167,28 @@ app.post("/vapi-webhook", async (req, res) => {
     ].join("\n");
 
     console.log(logBlock);
-    
-// trigger Zap 3
-await fetch(ZAP3_WEBHOOK_URL, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    callId: callId,
-    systemOutcome: outcome,
-    aiOutcomeDetected: aiOutcomeExists
-  })
-});
+
+
+    // ============================================
+    // TRIGGER ZAP 3
+    // ============================================
+
+    if (ZAP3_WEBHOOK_URL) {
+
+      await fetch(ZAP3_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          callId: callId,
+          systemOutcome: outcome,
+          aiOutcomeDetected: aiOutcomeExists
+        })
+      });
+
+    }
+
 
     res.sendStatus(200);
 
@@ -216,7 +228,6 @@ app.get("/outcome", (req, res) => {
       });
     }
 
-    // remove after retrieval
     delete callOutcomes[callId];
 
     res.json({
