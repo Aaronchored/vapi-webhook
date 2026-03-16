@@ -133,39 +133,46 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
 
-    // ============================================
-    // AI OUTPUTS
-    // ============================================
+// ============================================
+// AI OUTPUTS
+// ============================================
 
-    const structuredOutputs =
-      payload?.message?.artifact?.structuredOutputs || {};
+const structuredOutputs =
+  payload?.message?.artifact?.structuredOutputs || {};
 
-    const aiOutcomeExists =
-      structuredOutputs && Object.keys(structuredOutputs).length > 0;
+// Extract results
+const callOutcome =
+  structuredOutputs?.callOutcome?.result ?? null;
 
-    const callOutcome =
-      structuredOutputs?.callOutcome?.result ?? null;
+const engagementTier =
+  structuredOutputs?.engagementTier?.result ?? null;
 
-    const engagementTier =
-      structuredOutputs?.engagementTier?.result ?? null;
+const dataQuality =
+  structuredOutputs?.dataQuality?.result ?? null;
 
-    const dataQuality =
-      structuredOutputs?.dataQuality?.result ?? null;
+const finalStatus =
+  structuredOutputs?.finalStatus?.result ?? null;
 
-    const finalStatus =
-      structuredOutputs?.finalStatus?.result ?? null;
+const objectionType =
+  structuredOutputs?.objectionType?.result ?? null;
 
-    const objectionType =
-      structuredOutputs?.objectionType?.result ?? null;
+const callSummary =
+  structuredOutputs?.callSummary?.result ?? null;
 
-    const callSummary =
-      structuredOutputs?.callSummary?.result ?? null;
+// AI outcome only exists if at least one real result exists
+const aiOutcomeExists =
+  callOutcome !== null ||
+  engagementTier !== null ||
+  dataQuality !== null ||
+  finalStatus !== null ||
+  objectionType !== null ||
+  callSummary !== null;
 
-    const recordingUrl =
-      payload?.message?.call?.recordingUrl ||
-      payload?.message?.artifact?.recordingUrl ||
-      structuredOutputs?.recordingUrl?.result ||
-      null;
+const recordingUrl =
+  payload?.message?.call?.recordingUrl ||
+  payload?.message?.artifact?.recordingUrl ||
+  structuredOutputs?.recordingUrl?.result ||
+  null;
 
 
     // ============================================
