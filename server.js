@@ -154,10 +154,11 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const callSummary =
       structuredOutputs?.callSummary?.result || "N/A";
-
+    
     const recordingUrl =
+      payload?.message?.call?.recordingUrl ||
+      payload?.message?.artifact?.recordingUrl ||
       structuredOutputs?.recordingUrl?.result || "N/A";
-
 
     // ============================================
     // LAST ATTEMPT UTC
