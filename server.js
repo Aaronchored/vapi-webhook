@@ -5,27 +5,19 @@ const app = express();
 
 app.use(express.json({ limit: "1mb" }));
 
-
 // ============================================
 // TEMP STORAGE FOR OUTCOMES
 // ============================================
 const callOutcomes = {};
 
-
-// prevent duplicate webhook processing
 const processedCalls = new Set();
 
-
-// ============================================
-// CLEANUP MEMORY (prevents memory growth)
-// ============================================
 setInterval(() => {
   processedCalls.clear();
-}, 60 * 60 * 1000); // clear every hour
-
+}, 60 * 60 * 1000);
 
 // ============================================
-// VAPI WEBHOOK ENDPOINT
+// VAPI WEBHOOK
 // ============================================
 app.post("/vapi-webhook", async (req, res) => {
 
@@ -35,7 +27,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const eventType = payload?.message?.type || "unknown";
 
-    // only process final call reports
     if (eventType !== "end-of-call-report") {
       return res.sendStatus(200);
     }
@@ -45,16 +36,14 @@ app.post("/vapi-webhook", async (req, res) => {
       payload?.message?.call?.id ||
       "unknown";
 
-    // prevent duplicate processing
     if (processedCalls.has(callId)) {
       return res.sendStatus(200);
     }
 
     processedCalls.add(callId);
 
-
     // ============================================
-    // EXTRACT BASIC CALL DATA
+    // BASIC CALL DATA
     // ============================================
 
     const assistantId =
@@ -65,6 +54,8 @@ app.post("/vapi-webhook", async (req, res) => {
     const phoneNumber =
       payload?.phone_number ||
       payload?.message?.call?.phoneNumber ||
+      payload?.message?.customer?.number ||
+      payload?.message?.call?.customer?.number ||
       "unknown";
 
     const messages =
@@ -73,32 +64,28 @@ app.post("/vapi-webhook", async (req, res) => {
     const duration =
       payload?.message?.call?.duration || 0;
 
-
     // ============================================
-    // EXTRACT METADATA FROM CALL NAME (Zap 2)
+    // PARSE CALL NAME (personId|dealId)
     // ============================================
 
-    let name = null;
     let personId = null;
     let dealId = null;
 
     try {
 
       const callName =
-        payload?.message?.call?.name || "{}";
+        payload?.message?.call?.name || "";
 
-      const parsedMeta = JSON.parse(callName);
+      const parts = callName.split("|");
 
-      name = parsedMeta.name || null;
-      personId = parsedMeta.personId || null;
-      dealId = parsedMeta.dealId || null;
+      personId = parts[0] || null;
+      dealId = parts[1] || null;
 
-    } catch (err) {
+    } catch {
 
-      console.log("Metadata parse failed");
+      console.log("Call name parse failed");
 
     }
-
 
     // ============================================
     // PHONE FORMATTING
@@ -115,9 +102,8 @@ app.post("/vapi-webhook", async (req, res) => {
       phoneE164 = "+61" + phoneDigits.slice(1);
     }
 
-
     // ============================================
-    // DETECT REAL AI OUTCOME
+    // AI OUTPUT DETECTION
     // ============================================
 
     const structuredOutputs =
@@ -131,11 +117,6 @@ app.post("/vapi-webhook", async (req, res) => {
         break;
       }
     }
-
-
-    // ============================================
-    // EXTRACT STRUCTURED OUTPUT VALUES
-    // ============================================
 
     const callOutcome =
       structuredOutputs?.callOutcome?.result || null;
@@ -152,6 +133,9 @@ app.post("/vapi-webhook", async (req, res) => {
     const lastAttemptUtc =
       structuredOutputs?.lastAttemptUtc?.result || null;
 
+    // ============================================
+    // TELEPHONY CLASSIFICATION
+    // ============================================
 
     let outcome = null;
 
@@ -159,11 +143,6 @@ app.post("/vapi-webhook", async (req, res) => {
       payload?.message?.call?.endedReason ||
       payload?.endedReason ||
       null;
-
-
-    // ============================================
-    // TELEPHONY CLASSIFICATION
-    // ============================================
 
     if (!aiOutcomeExists) {
 
@@ -207,54 +186,48 @@ app.post("/vapi-webhook", async (req, res) => {
 
     }
 
+    // ============================================
+    // LOG OUTPUT
+    // ============================================
+
+    console.log(`
+=================================
+FINAL CALL REPORT
+
+callId: ${callId}
+assistantId: ${assistantId}
+
+phoneNumber: ${phoneNumber}
+phoneDigits: ${phoneDigits}
+phoneE164: ${phoneE164}
+
+personId: ${personId}
+dealId: ${dealId}
+
+duration: ${duration}
+messages: ${messages.length}
+
+endedReason: ${endedReason}
+aiOutcomeDetected: ${aiOutcomeExists}
+
+systemOutcome: ${outcome}
+
+=================================
+`);
 
     // ============================================
-    // CLEAN SINGLE LOG BLOCK
-    // ============================================
-
-    const logBlock = [
-      "=================================",
-      "FINAL CALL REPORT",
-      "",
-      `callId: ${callId}`,
-      `assistantId: ${assistantId}`,
-      `phoneNumber: ${phoneNumber}`,
-      `phoneDigits: ${phoneDigits}`,
-      `phoneE164: ${phoneE164}`,
-      "",
-      `name: ${name}`,
-      `personId: ${personId}`,
-      `dealId: ${dealId}`,
-      "",
-      `duration: ${duration}`,
-      `messages: ${messages.length}`,
-      "",
-      `endedReason: ${endedReason}`,
-      `aiOutcomeDetected: ${aiOutcomeExists}`,
-      "",
-      `systemOutcome: ${outcome}`,
-      "",
-      "================================="
-    ].join("\n");
-
-    console.log(logBlock);
-
-
-    // ============================================
-    // TRIGGER ZAP 3
+    // TRIGGER ZAP
     // ============================================
 
     const zapWebhook = process.env.ZAP_3_WEBHOOK;
 
     if (!zapWebhook) {
 
-      console.error("Zap 3 webhook URL missing: ZAP_3_WEBHOOK is not set");
+      console.error("Zap 3 webhook URL missing");
 
     } else {
 
       try {
-
-        console.log("Triggering Zap 3 webhook");
 
         const zapResponse = await fetch(zapWebhook, {
           method: "POST",
@@ -263,7 +236,6 @@ app.post("/vapi-webhook", async (req, res) => {
           },
           body: JSON.stringify({
 
-            name,
             personId,
             dealId,
 
@@ -288,14 +260,13 @@ app.post("/vapi-webhook", async (req, res) => {
 
         console.log(`Zap 3 webhook response: ${zapResponse.status}`);
 
-      } catch (zapError) {
+      } catch (err) {
 
-        console.error("Zap 3 webhook FAILED:", zapError);
+        console.error("Zap 3 webhook FAILED:", err);
 
       }
 
     }
-
 
     res.sendStatus(200);
 
@@ -311,60 +282,14 @@ app.post("/vapi-webhook", async (req, res) => {
 
 });
 
-
-// ============================================
-// OUTCOME RETRIEVAL ENDPOINT (ZAPIER)
-// ============================================
-app.get("/outcome", (req, res) => {
-
-  try {
-
-    const callId = req.query.callId;
-
-    if (!callId) {
-      return res.status(400).json({
-        error: "Missing callId"
-      });
-    }
-
-    const outcome = callOutcomes[callId];
-
-    if (!outcome) {
-      return res.json({
-        finalOutcome: null
-      });
-    }
-
-    delete callOutcomes[callId];
-
-    res.json({
-      finalOutcome: outcome
-    });
-
-  }
-
-  catch (error) {
-
-    console.error("Outcome retrieval error:", error);
-
-    res.sendStatus(500);
-
-  }
-
-});
-
-
 // ============================================
 // HEALTH CHECK
 // ============================================
+
 app.get("/", (req, res) => {
   res.send("Server running");
 });
 
-
-// ============================================
-// START SERVER
-// ============================================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
