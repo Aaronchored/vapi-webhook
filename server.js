@@ -25,9 +25,7 @@ setInterval(() => {
 // ============================================
 
 app.post("/vapi-webhook", async (req, res) => {
-
   try {
-
     const payload = req.body || {};
     const eventType = payload?.message?.type || "unknown";
 
@@ -90,7 +88,6 @@ app.post("/vapi-webhook", async (req, res) => {
     let ledgerRowId = null;
 
     try {
-
       const callName =
         payload?.message?.call?.name || "";
 
@@ -99,9 +96,33 @@ app.post("/vapi-webhook", async (req, res) => {
       personId = parts[0] || null;
       dealId = parts[1] || null;
       ledgerRowId = parts[2] || null;
-
     } catch {}
 
+
+    // ============================================
+    // ATTEMPT COUNT FROM METADATA
+    // ============================================
+
+    const metadata =
+      payload?.message?.call?.metadata ||
+      payload?.message?.metadata ||
+      payload?.metadata ||
+      {};
+
+    let attemptCount =
+      metadata?.attemptCount ??
+      metadata?.attempt_count ??
+      metadata?.attempt ??
+      payload?.message?.call?.attemptCount ??
+      payload?.message?.call?.attempt_count ??
+      null;
+
+    if (attemptCount !== null && attemptCount !== undefined && attemptCount !== "") {
+      const parsedAttemptCount = Number(attemptCount);
+      attemptCount = Number.isNaN(parsedAttemptCount) ? attemptCount : parsedAttemptCount;
+    } else {
+      attemptCount = null;
+    }
 
 
     // ============================================
@@ -112,19 +133,15 @@ app.post("/vapi-webhook", async (req, res) => {
     let phoneE164 = null;
 
     if (typeof phoneNumber === "string") {
-
       const digits = phoneNumber.replace(/\D/g, "");
 
       if (digits.startsWith("614")) {
         phoneLocal = "0" + digits.slice(2);
         phoneE164 = "+" + digits;
-      }
-
-      else if (digits.startsWith("04")) {
+      } else if (digits.startsWith("04")) {
         phoneLocal = digits;
         phoneE164 = "+61" + digits.slice(1);
       }
-
     }
 
 
@@ -190,34 +207,25 @@ app.post("/vapi-webhook", async (req, res) => {
       null;
 
     if (!aiOutcomeExists) {
-
       if (!endedReason) {
-
         const payloadString = JSON.stringify(payload);
 
         if (payloadString.includes("voicemail"))
           endedReason = "voicemail";
-
         else if (payloadString.includes("silence-timed-out"))
           endedReason = "silence-timed-out";
-
         else if (payloadString.includes("customer-hangup"))
           endedReason = "customer-hangup";
-
       }
 
       if (endedReason === "voicemail")
         outcome = "STVM";
-
       else if (endedReason === "silence-timed-out")
         outcome = "No Answer";
-
       else if (endedReason === "customer-hangup")
         outcome = "Call Ended Early";
-
       else if (messages.length > 1)
         outcome = "Conversation";
-
     }
 
 
@@ -230,17 +238,15 @@ app.post("/vapi-webhook", async (req, res) => {
     const zapWebhook = process.env.ZAP_3_WEBHOOK;
 
     if (zapWebhook) {
-
       try {
-
         const zapResponse = await fetch(zapWebhook, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-
             personId,
             dealId,
             ledgerRowId,
+            attemptCount,
 
             phoneLocal,
             phoneE164,
@@ -263,18 +269,13 @@ app.post("/vapi-webhook", async (req, res) => {
 
             recordingUrl,
             lastAttemptUtc
-
           })
         });
 
         zapStatus = zapResponse.status;
-
       } catch (err) {
-
         zapStatus = "failed";
-
       }
-
     }
 
 
@@ -293,6 +294,7 @@ app.post("/vapi-webhook", async (req, res) => {
 [${traceId}] personId: ${personId}
 [${traceId}] dealId: ${dealId}
 [${traceId}] ledgerRowId: ${ledgerRowId}
+[${traceId}] attemptCount: ${attemptCount}
 
 [${traceId}] phoneLocal: ${phoneLocal}
 [${traceId}] phoneE164: ${phoneE164}
@@ -320,16 +322,10 @@ app.post("/vapi-webhook", async (req, res) => {
     console.log(report);
 
     res.sendStatus(200);
-
-  }
-
-  catch (error) {
-
+  } catch (error) {
     console.error("Webhook processing error:", error);
     res.sendStatus(500);
-
   }
-
 });
 
 
