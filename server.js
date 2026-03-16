@@ -1,4 +1,3 @@
-```javascript
 import express from "express";
 import fetch from "node-fetch";
 
@@ -47,7 +46,7 @@ app.post("/vapi-webhook", async (req, res) => {
         : "????";
 
     if (processedCalls.has(callId)) {
-      console.log(`[${traceId}] Duplicate webhook ignored`);
+      console.log("[" + traceId + "] Duplicate webhook ignored");
       return res.sendStatus(200);
     }
 
@@ -285,41 +284,31 @@ app.post("/vapi-webhook", async (req, res) => {
     // CLEAN REPORT BLOCK
     // ============================================
 
-    const report = `
-[${traceId}] =================================
-[${traceId}] FINAL CALL REPORT
-
-[${traceId}] callId: ${callId}
-[${traceId}] assistantId: ${assistantId}
-[${traceId}] assistantName: ${assistantName}
-
-[${traceId}] personId: ${personId}
-[${traceId}] dealId: ${dealId}
-[${traceId}] ledgerRowId: ${ledgerRowId}
-[${traceId}] attemptCount: ${attemptCount}
-
-[${traceId}] phoneLocal: ${phoneLocal}
-[${traceId}] phoneE164: ${phoneE164}
-
-[${traceId}] duration: ${duration}
-[${traceId}] messages: ${messages.length}
-
-[${traceId}] endedReason: ${endedReason}
-[${traceId}] systemOutcome: ${outcome}
-[${traceId}] aiOutcomeDetected: ${aiOutcomeExists}
-
-[${traceId}] callOutcome: ${callOutcome}
-[${traceId}] engagementTier: ${engagementTier}
-[${traceId}] dataQuality: ${dataQuality}
-[${traceId}] finalStatus: ${finalStatus}
-
-[${traceId}] recordingUrl: ${recordingUrl}
-[${traceId}] lastAttemptUtc: ${lastAttemptUtc}
-
-[${traceId}] Zap response: ${zapStatus}
-
-[${traceId}] =================================
-`;
+    const report =
+      "\n[" + traceId + "] =================================" +
+      "\n[" + traceId + "] FINAL CALL REPORT\n" +
+      "\n[" + traceId + "] callId: " + callId +
+      "\n[" + traceId + "] assistantId: " + assistantId +
+      "\n[" + traceId + "] assistantName: " + assistantName +
+      "\n\n[" + traceId + "] personId: " + personId +
+      "\n[" + traceId + "] dealId: " + dealId +
+      "\n[" + traceId + "] ledgerRowId: " + ledgerRowId +
+      "\n[" + traceId + "] attemptCount: " + attemptCount +
+      "\n\n[" + traceId + "] phoneLocal: " + phoneLocal +
+      "\n[" + traceId + "] phoneE164: " + phoneE164 +
+      "\n\n[" + traceId + "] duration: " + duration +
+      "\n[" + traceId + "] messages: " + messages.length +
+      "\n\n[" + traceId + "] endedReason: " + endedReason +
+      "\n[" + traceId + "] systemOutcome: " + outcome +
+      "\n[" + traceId + "] aiOutcomeDetected: " + aiOutcomeExists +
+      "\n\n[" + traceId + "] callOutcome: " + callOutcome +
+      "\n[" + traceId + "] engagementTier: " + engagementTier +
+      "\n[" + traceId + "] dataQuality: " + dataQuality +
+      "\n[" + traceId + "] finalStatus: " + finalStatus +
+      "\n\n[" + traceId + "] recordingUrl: " + recordingUrl +
+      "\n[" + traceId + "] lastAttemptUtc: " + lastAttemptUtc +
+      "\n\n[" + traceId + "] Zap response: " + zapStatus +
+      "\n\n[" + traceId + "] =================================";
 
     console.log(report);
 
@@ -348,6 +337,5 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Webhook server running on port ${PORT}`);
+  console.log("Webhook server running on port " + PORT);
 });
-```
