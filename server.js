@@ -79,7 +79,9 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const customerSpoke = messages.some(m => m.role === "customer");
 
-    const assistantTurns = messages.filter(m => m.role === "assistant").length;
+    const assistantTurns = messages.filter(
+      m => m.role !== "customer"
+    ).length;
 
     const duration =
       payload?.message?.call?.duration || 0;
@@ -137,49 +139,60 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
 
-    // ============================================
-    // AI OUTPUTS
-    // ============================================
+  // ============================================
+  // AI OUTPUTS (VAPI FORMAT)
+  // ============================================
 
-    const structuredOutputs =
-      payload?.message?.artifact?.structuredOutputs || {};
+const structuredOutputs =
+  payload?.message?.artifact?.structuredOutputs || {};
 
-    let callOutcome =
-      structuredOutputs?.callOutcome?.result ?? null;
+let callOutcome = null;
+let engagementTier = null;
+let dataQuality = null;
+let finalStatus = null;
+let objectionType = null;
+let callSummary = null;
 
-    let engagementTier =
-      structuredOutputs?.engagementTier?.result ?? null;
+// iterate through Vapi outputs
+for (const key in structuredOutputs) {
 
-    let dataQuality =
-      structuredOutputs?.dataQuality?.result ?? null;
+  const item = structuredOutputs[key];
 
-    let finalStatus =
-      structuredOutputs?.finalStatus?.result ?? null;
+  if (!item || !item.name) continue;
 
-    let objectionType =
-      structuredOutputs?.objectionType?.result ?? null;
+  switch (item.name) {
 
-    let callSummary =
-      structuredOutputs?.callSummary?.result ?? null;
+    case "AI_Call_Outcome":
+      callOutcome = item.result;
+      break;
 
-    const recordingUrl =
-      payload?.message?.call?.recordingUrl ||
-      payload?.message?.artifact?.recordingUrl ||
-      structuredOutputs?.recordingUrl?.result ||
-      null;
+    case "Engagement_Tier":
+      engagementTier = item.result;
+      break;
 
+    case "Data_Quality":
+      dataQuality = item.result;
+      break;
 
-    // ============================================
-    // DETECT IF AI OUTCOME EXISTS
-    // ============================================
+    case "AI_Objection_Type":
+      objectionType = item.result;
+      break;
 
-    const aiOutcomeExists =
-      callOutcome !== null ||
-      engagementTier !== null ||
-      dataQuality !== null ||
-      finalStatus !== null ||
-      objectionType !== null ||
-      callSummary !== null;
+    case "AI_Call_Summary":
+      callSummary = item.result;
+      break;
+
+  }
+
+}
+
+// derive final status from outcome
+if (callOutcome === "Do Not Call") {
+  finalStatus = "suppressed";
+}
+
+// detect if AI produced classification
+const aiOutcomeExists = callOutcome !== null;
 
 
 // ============================================
