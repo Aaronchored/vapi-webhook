@@ -228,6 +228,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
 [${traceId}] callId: ${callId}
 [${traceId}] assistantId: ${assistantId}
+[${traceId}] assistantName: ${assistantName}
 
 [${traceId}] personId: ${personId}
 [${traceId}] dealId: ${dealId}
@@ -278,6 +279,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
           callId,
           assistantId,
+          assistantName,
 
           duration,
           systemOutcome: outcome,
