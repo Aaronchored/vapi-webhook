@@ -133,55 +133,49 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
 
-// ============================================
-// AI OUTPUTS
-// ============================================
+    // ============================================
+    // AI OUTPUTS
+    // ============================================
 
-const structuredOutputs =
-  payload?.message?.artifact?.structuredOutputs || {};
+    const structuredOutputs =
+      payload?.message?.artifact?.structuredOutputs || {};
 
-// Extract results
-const callOutcome =
-  structuredOutputs?.callOutcome?.result ?? null;
+    let callOutcome =
+      structuredOutputs?.callOutcome?.result ?? null;
 
-const engagementTier =
-  structuredOutputs?.engagementTier?.result ?? null;
+    let engagementTier =
+      structuredOutputs?.engagementTier?.result ?? null;
 
-const dataQuality =
-  structuredOutputs?.dataQuality?.result ?? null;
+    let dataQuality =
+      structuredOutputs?.dataQuality?.result ?? null;
 
-const finalStatus =
-  structuredOutputs?.finalStatus?.result ?? null;
+    let finalStatus =
+      structuredOutputs?.finalStatus?.result ?? null;
 
-const objectionType =
-  structuredOutputs?.objectionType?.result ?? null;
+    let objectionType =
+      structuredOutputs?.objectionType?.result ?? null;
 
-const callSummary =
-  structuredOutputs?.callSummary?.result ?? null;
+    let callSummary =
+      structuredOutputs?.callSummary?.result ?? null;
 
-// AI outcome only exists if at least one real result exists
-const aiOutcomeExists =
-  callOutcome !== null ||
-  engagementTier !== null ||
-  dataQuality !== null ||
-  finalStatus !== null ||
-  objectionType !== null ||
-  callSummary !== null;
-
-const recordingUrl =
-  payload?.message?.call?.recordingUrl ||
-  payload?.message?.artifact?.recordingUrl ||
-  structuredOutputs?.recordingUrl?.result ||
-  null;
+    const recordingUrl =
+      payload?.message?.call?.recordingUrl ||
+      payload?.message?.artifact?.recordingUrl ||
+      structuredOutputs?.recordingUrl?.result ||
+      null;
 
 
     // ============================================
-    // LAST ATTEMPT UTC
+    // DETECT IF AI OUTCOME EXISTS
     // ============================================
 
-    const now = new Date();
-    const launchTime = new Date(now.getTime() - duration * 1000);
-    const lastAttemptUtc = launchTime.toISOString();
+    const aiOutcomeExists =
+      callOutcome !== null ||
+      engagementTier !== null ||
+      dataQuality !== null ||
+      finalStatus !== null ||
+      objectionType !== null ||
+      callSummary !== null;
 
 
     // ============================================
@@ -224,7 +218,24 @@ const recordingUrl =
       else if (messages.length > 1)
         outcome = "Conversation";
 
+      // populate AI fields with N/A when AI did not run
+      callOutcome = "N/A";
+      engagementTier = "N/A";
+      dataQuality = "N/A";
+      finalStatus = "N/A";
+      objectionType = "N/A";
+      callSummary = "N/A";
+
     }
+
+
+    // ============================================
+    // LAST ATTEMPT UTC
+    // ============================================
+
+    const now = new Date();
+    const launchTime = new Date(now.getTime() - duration * 1000);
+    const lastAttemptUtc = launchTime.toISOString();
 
 
     // ============================================
@@ -264,7 +275,6 @@ const recordingUrl =
             engagementTier,
             dataQuality,
             finalStatus,
-
             objectionType,
             callSummary,
 
