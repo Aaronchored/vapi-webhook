@@ -133,23 +133,27 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
 
-    // ============================================
-    // CUSTOMER / ASSISTANT DETECTION
-    // ============================================
+  // ============================================
+  // CUSTOMER / ASSISTANT DETECTION
+  // ============================================
 
-    const customerSpoke = messages.some(m => {
+  const customerSpoke = messages.some(m => {
 
+  const role = (m.role || "").toLowerCase();
+  const roles = ["customer", "user", "caller", "human"];
+
+  const hasSpeech =
+    typeof m.content === "string" && m.content.trim().length > 0;
+
+  return roles.includes(role) && hasSpeech;
+
+  });
+
+  // count assistant turns (anything not customer)
+  const assistantTurns = messages.filter(m => {
     const role = (m.role || "").toLowerCase();
-
-    const roles = ["customer", "user", "caller", "human"];
-
-    const hasSpeech =
-      typeof m.content === "string" && m.content.trim().length > 0;
-
-    return roles.includes(role) && hasSpeech;
-
-    });
-
+    return !["customer","user","caller","human"].includes(role);
+  }).length;
 
     // ============================================
     // AI OUTPUTS (VAPI FORMAT)
