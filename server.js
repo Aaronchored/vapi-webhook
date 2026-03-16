@@ -75,6 +75,48 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
+    // EXTRACT METADATA FROM CALL NAME (Zap 2)
+    // ============================================
+
+    let name = null;
+    let personId = null;
+    let dealId = null;
+
+    try {
+
+      const callName =
+        payload?.message?.call?.name || "{}";
+
+      const parsedMeta = JSON.parse(callName);
+
+      name = parsedMeta.name || null;
+      personId = parsedMeta.personId || null;
+      dealId = parsedMeta.dealId || null;
+
+    } catch (err) {
+
+      console.log("Metadata parse failed");
+
+    }
+
+
+    // ============================================
+    // PHONE FORMATTING
+    // ============================================
+
+    const phoneDigits =
+      typeof phoneNumber === "string"
+        ? phoneNumber.replace(/\D/g, "")
+        : null;
+
+    let phoneE164 = null;
+
+    if (phoneDigits && phoneDigits.startsWith("04")) {
+      phoneE164 = "+61" + phoneDigits.slice(1);
+    }
+
+
+    // ============================================
     // DETECT REAL AI OUTCOME
     // ============================================
 
@@ -89,6 +131,26 @@ app.post("/vapi-webhook", async (req, res) => {
         break;
       }
     }
+
+
+    // ============================================
+    // EXTRACT STRUCTURED OUTPUT VALUES
+    // ============================================
+
+    const callOutcome =
+      structuredOutputs?.callOutcome?.result || null;
+
+    const objectionType =
+      structuredOutputs?.objectionType?.result || null;
+
+    const callSummary =
+      structuredOutputs?.callSummary?.result || null;
+
+    const recordingUrl =
+      structuredOutputs?.recordingUrl?.result || null;
+
+    const lastAttemptUtc =
+      structuredOutputs?.lastAttemptUtc?.result || null;
 
 
     let outcome = null;
@@ -157,6 +219,12 @@ app.post("/vapi-webhook", async (req, res) => {
       `callId: ${callId}`,
       `assistantId: ${assistantId}`,
       `phoneNumber: ${phoneNumber}`,
+      `phoneDigits: ${phoneDigits}`,
+      `phoneE164: ${phoneE164}`,
+      "",
+      `name: ${name}`,
+      `personId: ${personId}`,
+      `dealId: ${dealId}`,
       "",
       `duration: ${duration}`,
       `messages: ${messages.length}`,
@@ -194,11 +262,27 @@ app.post("/vapi-webhook", async (req, res) => {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
+
+            name,
+            personId,
+            dealId,
+
+            phoneDigits,
+            phoneE164,
+
             callId,
+            assistantId,
+
+            duration,
             systemOutcome: outcome,
             aiOutcomeDetected: aiOutcomeExists,
-            phoneNumber,
-            duration
+
+            callOutcome,
+            objectionType,
+            callSummary,
+            recordingUrl,
+            lastAttemptUtc
+
           })
         });
 
