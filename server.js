@@ -61,7 +61,7 @@ app.post("/vapi-webhook", async (req, res) => {
       payload?.assistant_id ||
       payload?.message?.assistant?.id ||
       "unknown";
-    
+
     const assistantName =
       payload?.message?.assistant?.name ||
       payload?.assistant_name ||
@@ -82,11 +82,12 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
-    // PARSE CALL NAME
+    // PARSE CALL NAME (personId|dealId|ledgerRowId)
     // ============================================
 
     let personId = null;
     let dealId = null;
+    let ledgerRowId = null;
 
     try {
 
@@ -97,6 +98,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
       personId = parts[0] || null;
       dealId = parts[1] || null;
+      ledgerRowId = parts[2] || null;
 
     } catch {}
 
@@ -159,11 +161,13 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const callSummary =
       structuredOutputs?.callSummary?.result || "N/A";
-    
+
     const recordingUrl =
       payload?.message?.call?.recordingUrl ||
       payload?.message?.artifact?.recordingUrl ||
-      structuredOutputs?.recordingUrl?.result || "N/A";
+      structuredOutputs?.recordingUrl?.result ||
+      "N/A";
+
 
     // ============================================
     // LAST ATTEMPT UTC
@@ -171,7 +175,6 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const now = new Date();
     const launchTime = new Date(now.getTime() - duration * 1000);
-
     const lastAttemptUtc = launchTime.toISOString();
 
 
@@ -219,6 +222,63 @@ app.post("/vapi-webhook", async (req, res) => {
 
 
     // ============================================
+    // TRIGGER ZAP
+    // ============================================
+
+    let zapStatus = "not_sent";
+
+    const zapWebhook = process.env.ZAP_3_WEBHOOK;
+
+    if (zapWebhook) {
+
+      try {
+
+        const zapResponse = await fetch(zapWebhook, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+
+            personId,
+            dealId,
+            ledgerRowId,
+
+            phoneLocal,
+            phoneE164,
+
+            callId,
+            assistantId,
+            assistantName,
+
+            duration,
+            systemOutcome: outcome,
+            aiOutcomeDetected: aiOutcomeExists,
+
+            callOutcome,
+            engagementTier,
+            dataQuality,
+            finalStatus,
+
+            objectionType,
+            callSummary,
+
+            recordingUrl,
+            lastAttemptUtc
+
+          })
+        });
+
+        zapStatus = zapResponse.status;
+
+      } catch (err) {
+
+        zapStatus = "failed";
+
+      }
+
+    }
+
+
+    // ============================================
     // CLEAN REPORT BLOCK
     // ============================================
 
@@ -232,6 +292,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
 [${traceId}] personId: ${personId}
 [${traceId}] dealId: ${dealId}
+[${traceId}] ledgerRowId: ${ledgerRowId}
 
 [${traceId}] phoneLocal: ${phoneLocal}
 [${traceId}] phoneE164: ${phoneE164}
@@ -249,57 +310,14 @@ app.post("/vapi-webhook", async (req, res) => {
 [${traceId}] finalStatus: ${finalStatus}
 
 [${traceId}] recordingUrl: ${recordingUrl}
-
 [${traceId}] lastAttemptUtc: ${lastAttemptUtc}
+
+[${traceId}] Zap response: ${zapStatus}
 
 [${traceId}] =================================
 `;
 
     console.log(report);
-
-
-    // ============================================
-    // TRIGGER ZAP
-    // ============================================
-
-    const zapWebhook = process.env.ZAP_3_WEBHOOK;
-
-    if (zapWebhook) {
-
-      const zapResponse = await fetch(zapWebhook, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-
-          personId,
-          dealId,
-
-          phoneLocal,
-          phoneE164,
-
-          callId,
-          assistantId,
-          assistantName,
-
-          duration,
-          systemOutcome: outcome,
-          aiOutcomeDetected: aiOutcomeExists,
-
-          callOutcome,
-          engagementTier,
-          dataQuality,
-          finalStatus,
-          objectionType,
-          callSummary,
-          recordingUrl,
-          lastAttemptUtc
-
-        })
-      });
-
-      console.log(`[${traceId}] Zap response: ${zapResponse.status}`);
-
-    }
 
     res.sendStatus(200);
 
