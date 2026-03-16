@@ -193,11 +193,6 @@ let endedReason =
   payload?.endedReason ||
   null;
 
-// Detect if the customer actually spoke
-const customerSpoke = messages.some(
-  m => m.role === "customer"
-);
-
 if (!aiOutcomeExists) {
 
   // 1️⃣ Human speech always wins
