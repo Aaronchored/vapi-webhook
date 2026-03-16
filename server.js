@@ -95,16 +95,16 @@ app.post("/vapi-webhook", async (req, res) => {
       const callName =
         payload?.message?.call?.name || "";
 
-      const parts = callName.split("|");
+    const parts = callName.split("|").map(p => p.trim());
 
-      personId = parts[0] || null;
-      dealId = parts[1] || null;
-      ledgerRowId = parts[2] || null;
+        personId = parts[0] || null;
+        dealId = parts[1] || null;
+        ledgerRowId = parts[2] ? Number(parts[2]) : null;
 
-      if (parts[3] !== undefined && parts[3] !== "") {
-        const parsed = Number(parts[3]);
-        attemptCount = Number.isNaN(parsed) ? parts[3] : parsed;
-      }
+    if (parts[3]) {
+      const parsed = Number(parts[3]);
+        attemptCount = Number.isNaN(parsed) ? null : parsed;
+    }
 
     } catch {}
 
