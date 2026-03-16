@@ -77,6 +77,10 @@ app.post("/vapi-webhook", async (req, res) => {
     const messages =
       payload?.message?.artifact?.messages || [];
 
+    const customerSpoke = messages.some(m => m.role === "customer");
+
+    const assistantTurns = messages.filter(m => m.role === "assistant").length;
+
     const duration =
       payload?.message?.call?.duration || 0;
 
@@ -326,6 +330,8 @@ if (!aiOutcomeExists) {
       "\n[" + traceId + "] phoneE164: " + phoneE164 +
       "\n\n[" + traceId + "] duration: " + duration +
       "\n[" + traceId + "] messages: " + messages.length +
+      "\n[" + traceId + "] customerSpoke: " + customerSpoke +
+      "\n[" + traceId + "] assistantTurns: " + assistantTurns +
       "\n\n[" + traceId + "] endedReason: " + endedReason +
       "\n[" + traceId + "] systemOutcome: " + outcome +
       "\n[" + traceId + "] aiOutcomeDetected: " + aiOutcomeExists +
