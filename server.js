@@ -77,12 +77,6 @@ app.post("/vapi-webhook", async (req, res) => {
     const messages =
       payload?.message?.artifact?.messages || [];
 
-    const customerSpoke = messages.some(m => m.role === "customer");
-
-    const assistantTurns = messages.filter(
-      m => m.role !== "customer"
-    ).length;
-
     const duration =
       payload?.message?.call?.duration || 0;
 
@@ -101,16 +95,16 @@ app.post("/vapi-webhook", async (req, res) => {
       const callName =
         payload?.message?.call?.name || "";
 
-    const parts = callName.split("|").map(p => p.trim());
+      const parts = callName.split("|").map(p => p.trim());
 
-        personId = parts[0] || null;
-        dealId = parts[1] || null;
-        ledgerRowId = parts[2] ? Number(parts[2]) : null;
+      personId = parts[0] || null;
+      dealId = parts[1] || null;
+      ledgerRowId = parts[2] ? Number(parts[2]) : null;
 
-    if (parts[3]) {
-      const parsed = Number(parts[3]);
+      if (parts[3]) {
+        const parsed = Number(parts[3]);
         attemptCount = Number.isNaN(parsed) ? null : parsed;
-    }
+      }
 
     } catch {}
 
@@ -139,125 +133,161 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
 
-  // ============================================
-  // AI OUTPUTS (VAPI FORMAT)
-  // ============================================
+    // ============================================
+    // CUSTOMER / ASSISTANT DETECTION
+    // ============================================
 
-const structuredOutputs =
-  payload?.message?.artifact?.structuredOutputs || {};
+    const customerSpoke = messages.some(m => m.role === "customer");
 
-let callOutcome = null;
-let engagementTier = null;
-let dataQuality = null;
-let finalStatus = null;
-let objectionType = null;
-let callSummary = null;
-
-// iterate through Vapi outputs
-for (const key in structuredOutputs) {
-
-  const item = structuredOutputs[key];
-
-  if (!item || !item.name) continue;
-
-  switch (item.name) {
-
-    case "AI_Call_Outcome":
-      callOutcome = item.result;
-      break;
-
-    case "Engagement_Tier":
-      engagementTier = item.result;
-      break;
-
-    case "Data_Quality":
-      dataQuality = item.result;
-      break;
-
-    case "AI_Objection_Type":
-      objectionType = item.result;
-      break;
-
-    case "AI_Call_Summary":
-      callSummary = item.result;
-      break;
-
-  }
-
-}
-
-// derive final status from outcome
-if (callOutcome === "Do Not Call") {
-  finalStatus = "suppressed";
-}
-
-// detect if AI produced classification
-const aiOutcomeExists = callOutcome !== null;
+    const assistantTurns = messages.filter(
+      m => m.role !== "customer"
+    ).length;
 
 
-// ============================================
-// TELEPHONY CLASSIFICATION (PRODUCTION PATTERN)
-// ============================================
+    // ============================================
+    // AI OUTPUTS (VAPI FORMAT)
+    // ============================================
 
-let outcome = null;
+    const structuredOutputs =
+      payload?.message?.artifact?.structuredOutputs || {};
 
-let endedReason =
-  payload?.message?.call?.endedReason ||
-  payload?.endedReason ||
-  null;
+    let callOutcome = null;
+    let engagementTier = null;
+    let dataQuality = null;
+    let finalStatus = null;
+    let objectionType = null;
+    let callSummary = null;
 
-if (!aiOutcomeExists) {
+    for (const key in structuredOutputs) {
 
-  // 1️⃣ Human speech always wins
-  if (customerSpoke) {
+      const item = structuredOutputs[key];
 
-    outcome = "Conversation";
+      if (!item || !item.name) continue;
 
-  }
+      switch (item.name) {
 
-  // 2️⃣ Voicemail detected
-  else if (endedReason === "voicemail") {
+        case "AI_Call_Outcome":
+          callOutcome = item.result;
+          break;
 
-    outcome = "STVM";
+        case "Engagement_Tier":
+          engagementTier = item.result;
+          break;
 
-  }
+        case "Data_Quality":
+          dataQuality = item.result;
+          break;
 
-  // 3️⃣ Silence timeout
-  else if (endedReason === "silence-timed-out") {
+        case "AI_Objection_Type":
+          objectionType = item.result;
+          break;
 
-    outcome = "No Answer";
+        case "AI_Call_Summary":
+          callSummary = item.result;
+          break;
 
-  }
+      }
 
-  // 4️⃣ Customer hung up before speaking
-  else if (endedReason === "customer-hangup") {
+    }
 
-    outcome = "Call Ended Early";
+    if (callOutcome === "Do Not Call") {
+      finalStatus = "suppressed";
+    }
 
-  }
+    const aiOutcomeExists = callOutcome !== null;
 
-  // 5️⃣ Long interaction fallback
-  else if (messages.length > 4) {
 
-    outcome = "Conversation";
+    const recordingUrl =
+      payload?.message?.call?.recordingUrl ||
+      payload?.message?.artifact?.recordingUrl ||
+      null;
 
-  }
 
-  // 6️⃣ Default fallback
-  else {
+    // ============================================
+    // NORMALIZED CALL OBJECT
+    // ============================================
 
-    outcome = "No Answer";
+    const call = {
 
-  }
+      id: callId,
 
-}
+      assistantId,
+      assistantName,
+
+      personId,
+      dealId,
+      ledgerRowId,
+      attemptCount,
+
+      phoneLocal,
+      phoneE164,
+
+      duration,
+      messages,
+
+      customerSpoke,
+      assistantTurns,
+
+      ai: {
+        outcome: callOutcome,
+        engagement: engagementTier,
+        dataQuality,
+        objection: objectionType,
+        summary: callSummary,
+        finalStatus
+      },
+
+      telephony: {
+        endedReason:
+          payload?.message?.call?.endedReason ||
+          payload?.endedReason ||
+          null
+      }
+
+    };
+
+
+    // ============================================
+    // TELEPHONY CLASSIFICATION
+    // ============================================
+
+    let systemOutcome = null;
+
+    if (!call.ai.outcome) {
+
+      if (call.customerSpoke) {
+        systemOutcome = "Conversation";
+      }
+
+      else if (call.telephony.endedReason === "voicemail") {
+        systemOutcome = "STVM";
+      }
+
+      else if (call.telephony.endedReason === "silence-timed-out") {
+        systemOutcome = "No Answer";
+      }
+
+      else if (call.telephony.endedReason === "customer-hangup") {
+        systemOutcome = "Call Ended Early";
+      }
+
+      else if (call.messages.length > 4) {
+        systemOutcome = "Conversation";
+      }
+
+      else {
+        systemOutcome = "No Answer";
+      }
+
+    }
+
 
     // ============================================
     // LAST ATTEMPT UTC
     // ============================================
 
     const now = new Date();
-    const launchTime = new Date(now.getTime() - duration * 1000);
+    const launchTime = new Date(now.getTime() - call.duration * 1000);
     const lastAttemptUtc = launchTime.toISOString();
 
 
@@ -278,28 +308,28 @@ if (!aiOutcomeExists) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
 
-            personId,
-            dealId,
-            ledgerRowId,
-            attemptCount,
+            personId: call.personId,
+            dealId: call.dealId,
+            ledgerRowId: call.ledgerRowId,
+            attemptCount: call.attemptCount,
 
-            phoneLocal,
-            phoneE164,
+            phoneLocal: call.phoneLocal,
+            phoneE164: call.phoneE164,
 
-            callId,
-            assistantId,
-            assistantName,
+            callId: call.id,
+            assistantId: call.assistantId,
+            assistantName: call.assistantName,
 
-            duration,
-            systemOutcome: outcome,
+            duration: call.duration,
+            systemOutcome: systemOutcome,
             aiOutcomeDetected: aiOutcomeExists,
 
-            callOutcome,
-            engagementTier,
-            dataQuality,
-            finalStatus,
-            objectionType,
-            callSummary,
+            callOutcome: call.ai.outcome,
+            engagementTier: call.ai.engagement,
+            dataQuality: call.ai.dataQuality,
+            finalStatus: call.ai.finalStatus,
+            objectionType: call.ai.objection,
+            callSummary: call.ai.summary,
 
             recordingUrl,
             lastAttemptUtc
@@ -327,26 +357,16 @@ if (!aiOutcomeExists) {
     const report =
       "\n[" + traceId + "] =================================" +
       "\n[" + traceId + "] FINAL CALL REPORT\n" +
-      "\n[" + traceId + "] callId: " + callId +
-      "\n[" + traceId + "] assistantId: " + assistantId +
-      "\n[" + traceId + "] assistantName: " + assistantName +
-      "\n\n[" + traceId + "] personId: " + personId +
-      "\n[" + traceId + "] dealId: " + dealId +
-      "\n[" + traceId + "] ledgerRowId: " + ledgerRowId +
-      "\n[" + traceId + "] attemptCount: " + attemptCount +
-      "\n\n[" + traceId + "] phoneLocal: " + phoneLocal +
-      "\n[" + traceId + "] phoneE164: " + phoneE164 +
-      "\n\n[" + traceId + "] duration: " + duration +
-      "\n[" + traceId + "] messages: " + messages.length +
-      "\n[" + traceId + "] customerSpoke: " + customerSpoke +
-      "\n[" + traceId + "] assistantTurns: " + assistantTurns +
-      "\n\n[" + traceId + "] endedReason: " + endedReason +
-      "\n[" + traceId + "] systemOutcome: " + outcome +
-      "\n[" + traceId + "] aiOutcomeDetected: " + aiOutcomeExists +
-      "\n\n[" + traceId + "] callOutcome: " + callOutcome +
-      "\n[" + traceId + "] engagementTier: " + engagementTier +
-      "\n[" + traceId + "] dataQuality: " + dataQuality +
-      "\n[" + traceId + "] finalStatus: " + finalStatus +
+      "\n[" + traceId + "] callId: " + call.id +
+      "\n[" + traceId + "] assistant: " + call.assistantName +
+      "\n\n[" + traceId + "] personId: " + call.personId +
+      "\n[" + traceId + "] dealId: " + call.dealId +
+      "\n[" + traceId + "] ledgerRowId: " + call.ledgerRowId +
+      "\n[" + traceId + "] attemptCount: " + call.attemptCount +
+      "\n\n[" + traceId + "] customerSpoke: " + call.customerSpoke +
+      "\n[" + traceId + "] assistantTurns: " + call.assistantTurns +
+      "\n\n[" + traceId + "] aiOutcome: " + call.ai.outcome +
+      "\n[" + traceId + "] systemOutcome: " + systemOutcome +
       "\n\n[" + traceId + "] recordingUrl: " + recordingUrl +
       "\n[" + traceId + "] lastAttemptUtc: " + lastAttemptUtc +
       "\n\n[" + traceId + "] Zap response: " + zapStatus +
