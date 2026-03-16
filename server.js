@@ -2,29 +2,32 @@ import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
-
 app.use(express.json({ limit: "1mb" }));
 
 // ============================================
-// TEMP STORAGE FOR OUTCOMES
+// DUPLICATE WEBHOOK PROTECTION
 // ============================================
-const callOutcomes = {};
 
-const processedCalls = new Set();
+const processedCalls = new Map();
 
 setInterval(() => {
-  processedCalls.clear();
+  const now = Date.now();
+  for (const [key, value] of processedCalls.entries()) {
+    if (now - value > 60 * 60 * 1000) {
+      processedCalls.delete(key);
+    }
+  }
 }, 60 * 60 * 1000);
 
 // ============================================
 // VAPI WEBHOOK
 // ============================================
+
 app.post("/vapi-webhook", async (req, res) => {
 
   try {
 
     const payload = req.body || {};
-
     const eventType = payload?.message?.type || "unknown";
 
     if (eventType !== "end-of-call-report") {
@@ -36,11 +39,21 @@ app.post("/vapi-webhook", async (req, res) => {
       payload?.message?.call?.id ||
       "unknown";
 
+    const traceId =
+      callId !== "unknown"
+        ? callId.slice(-4)
+        : "????";
+
+    // ============================================
+    // DUPLICATE PROTECTION
+    // ============================================
+
     if (processedCalls.has(callId)) {
+      console.log(`[${traceId}] Duplicate webhook ignored`);
       return res.sendStatus(200);
     }
 
-    processedCalls.add(callId);
+    processedCalls.set(callId, Date.now());
 
     // ============================================
     // BASIC CALL DATA
@@ -72,34 +85,35 @@ app.post("/vapi-webhook", async (req, res) => {
     let dealId = null;
 
     try {
-
-      const callName =
-        payload?.message?.call?.name || "";
-
+      const callName = payload?.message?.call?.name || "";
       const parts = callName.split("|");
-
       personId = parts[0] || null;
       dealId = parts[1] || null;
-
     } catch {
-
-      console.log("Call name parse failed");
-
+      console.log(`[${traceId}] Call name parse failed`);
     }
 
     // ============================================
     // PHONE FORMATTING
     // ============================================
 
-    const phoneDigits =
-      typeof phoneNumber === "string"
-        ? phoneNumber.replace(/\D/g, "")
-        : null;
-
+    let phoneLocal = null;
     let phoneE164 = null;
 
-    if (phoneDigits && phoneDigits.startsWith("04")) {
-      phoneE164 = "+61" + phoneDigits.slice(1);
+    if (typeof phoneNumber === "string") {
+
+      const digits = phoneNumber.replace(/\D/g, "");
+
+      if (digits.startsWith("614")) {
+        phoneLocal = "0" + digits.slice(2);
+        phoneE164 = "+" + digits;
+      }
+
+      else if (digits.startsWith("04")) {
+        phoneLocal = digits;
+        phoneE164 = "+61" + digits.slice(1);
+      }
+
     }
 
     // ============================================
@@ -119,19 +133,28 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
     const callOutcome =
-      structuredOutputs?.callOutcome?.result || null;
+      structuredOutputs?.callOutcome?.result || "N/A";
+
+    const engagementTier =
+      structuredOutputs?.engagementTier?.result || "N/A";
+
+    const dataQuality =
+      structuredOutputs?.dataQuality?.result || "N/A";
+
+    const finalStatus =
+      structuredOutputs?.finalStatus?.result || "N/A";
 
     const objectionType =
-      structuredOutputs?.objectionType?.result || null;
+      structuredOutputs?.objectionType?.result || "N/A";
 
     const callSummary =
-      structuredOutputs?.callSummary?.result || null;
+      structuredOutputs?.callSummary?.result || "N/A";
 
     const recordingUrl =
-      structuredOutputs?.recordingUrl?.result || null;
+      structuredOutputs?.recordingUrl?.result || "N/A";
 
     const lastAttemptUtc =
-      structuredOutputs?.lastAttemptUtc?.result || null;
+      structuredOutputs?.lastAttemptUtc?.result || "N/A";
 
     // ============================================
     // TELEPHONY CLASSIFICATION
@@ -150,39 +173,28 @@ app.post("/vapi-webhook", async (req, res) => {
 
         const payloadString = JSON.stringify(payload);
 
-        if (payloadString.includes("voicemail")) {
+        if (payloadString.includes("voicemail"))
           endedReason = "voicemail";
-        }
 
-        else if (payloadString.includes("silence-timed-out")) {
+        else if (payloadString.includes("silence-timed-out"))
           endedReason = "silence-timed-out";
-        }
 
-        else if (payloadString.includes("customer-hangup")) {
+        else if (payloadString.includes("customer-hangup"))
           endedReason = "customer-hangup";
-        }
 
       }
 
-      if (endedReason === "voicemail") {
+      if (endedReason === "voicemail")
         outcome = "STVM";
-      }
 
-      else if (endedReason === "silence-timed-out") {
+      else if (endedReason === "silence-timed-out")
         outcome = "No Answer";
-      }
 
-      else if (endedReason === "customer-hangup") {
+      else if (endedReason === "customer-hangup")
         outcome = "Call Ended Early";
-      }
 
-      else if (messages.length > 1) {
+      else if (messages.length > 1)
         outcome = "Conversation";
-      }
-
-      if (callId !== "unknown" && outcome) {
-        callOutcomes[callId] = outcome;
-      }
 
     }
 
@@ -191,28 +203,27 @@ app.post("/vapi-webhook", async (req, res) => {
     // ============================================
 
     console.log(`
-=================================
-FINAL CALL REPORT
+[${traceId}] =================================
+[${traceId}] FINAL CALL REPORT
 
-callId: ${callId}
-assistantId: ${assistantId}
+[${traceId}] callId: ${callId}
+[${traceId}] assistantId: ${assistantId}
 
-phoneNumber: ${phoneNumber}
-phoneDigits: ${phoneDigits}
-phoneE164: ${phoneE164}
+[${traceId}] phoneLocal: ${phoneLocal}
+[${traceId}] phoneE164: ${phoneE164}
 
-personId: ${personId}
-dealId: ${dealId}
+[${traceId}] personId: ${personId}
+[${traceId}] dealId: ${dealId}
 
-duration: ${duration}
-messages: ${messages.length}
+[${traceId}] duration: ${duration}
+[${traceId}] messages: ${messages.length}
 
-endedReason: ${endedReason}
-aiOutcomeDetected: ${aiOutcomeExists}
+[${traceId}] endedReason: ${endedReason}
+[${traceId}] aiOutcomeDetected: ${aiOutcomeExists}
 
-systemOutcome: ${outcome}
+[${traceId}] systemOutcome: ${outcome}
 
-=================================
+[${traceId}] =================================
 `);
 
     // ============================================
@@ -223,7 +234,7 @@ systemOutcome: ${outcome}
 
     if (!zapWebhook) {
 
-      console.error("Zap 3 webhook URL missing");
+      console.error(`[${traceId}] Zap webhook missing`);
 
     } else {
 
@@ -239,7 +250,7 @@ systemOutcome: ${outcome}
             personId,
             dealId,
 
-            phoneDigits,
+            phoneLocal,
             phoneE164,
 
             callId,
@@ -250,6 +261,9 @@ systemOutcome: ${outcome}
             aiOutcomeDetected: aiOutcomeExists,
 
             callOutcome,
+            engagementTier,
+            dataQuality,
+            finalStatus,
             objectionType,
             callSummary,
             recordingUrl,
@@ -258,11 +272,11 @@ systemOutcome: ${outcome}
           })
         });
 
-        console.log(`Zap 3 webhook response: ${zapResponse.status}`);
+        console.log(`[${traceId}] Zap response: ${zapResponse.status}`);
 
       } catch (err) {
 
-        console.error("Zap 3 webhook FAILED:", err);
+        console.error(`[${traceId}] Zap failed`, err);
 
       }
 
@@ -275,7 +289,6 @@ systemOutcome: ${outcome}
   catch (error) {
 
     console.error("Webhook processing error:", error);
-
     res.sendStatus(500);
 
   }
