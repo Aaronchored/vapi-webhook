@@ -132,6 +132,10 @@ app.post("/vapi-webhook", async (req, res) => {
       }
     }
 
+    // ============================================
+    // GUARANTEED AI FIELDS
+    // ============================================
+
     const callOutcome =
       structuredOutputs?.callOutcome?.result || "N/A";
 
@@ -153,8 +157,14 @@ app.post("/vapi-webhook", async (req, res) => {
     const recordingUrl =
       structuredOutputs?.recordingUrl?.result || "N/A";
 
-    const lastAttemptUtc =
-      structuredOutputs?.lastAttemptUtc?.result || "N/A";
+    // ============================================
+    // LAST ATTEMPT UTC (CALL LAUNCH TIME)
+    // ============================================
+
+    const now = new Date();
+    const launchTime = new Date(now.getTime() - duration * 1000);
+
+    const lastAttemptUtc = launchTime.toISOString();
 
     // ============================================
     // TELEPHONY CLASSIFICATION
@@ -199,7 +209,7 @@ app.post("/vapi-webhook", async (req, res) => {
     }
 
     // ============================================
-    // LOG OUTPUT
+    // CLEAN LOG OUTPUT
     // ============================================
 
     console.log(`
@@ -220,8 +230,15 @@ app.post("/vapi-webhook", async (req, res) => {
 
 [${traceId}] endedReason: ${endedReason}
 [${traceId}] aiOutcomeDetected: ${aiOutcomeExists}
-
 [${traceId}] systemOutcome: ${outcome}
+
+[${traceId}] callOutcome: ${callOutcome}
+[${traceId}] engagementTier: ${engagementTier}
+[${traceId}] dataQuality: ${dataQuality}
+[${traceId}] finalStatus: ${finalStatus}
+[${traceId}] recordingUrl: ${recordingUrl}
+
+[${traceId}] lastAttemptUtc: ${lastAttemptUtc}
 
 [${traceId}] =================================
 `);
