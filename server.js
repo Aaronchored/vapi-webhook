@@ -137,11 +137,18 @@ app.post("/vapi-webhook", async (req, res) => {
     // CUSTOMER / ASSISTANT DETECTION
     // ============================================
 
-    const customerSpoke = messages.some(m => m.role === "customer");
+    const customerSpoke = messages.some(m => {
 
-    const assistantTurns = messages.filter(
-      m => m.role !== "customer"
-    ).length;
+    const role = (m.role || "").toLowerCase();
+
+    const roles = ["customer", "user", "caller", "human"];
+
+    const hasSpeech =
+      typeof m.content === "string" && m.content.trim().length > 0;
+
+    return roles.includes(role) && hasSpeech;
+
+    });
 
 
     // ============================================
