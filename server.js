@@ -178,56 +178,67 @@ app.post("/vapi-webhook", async (req, res) => {
       callSummary !== null;
 
 
-    // ============================================
-    // TELEPHONY CLASSIFICATION
-    // ============================================
+// ============================================
+// TELEPHONY CLASSIFICATION (PRODUCTION PATTERN)
+// ============================================
 
-    let outcome = null;
+let outcome = null;
 
-    let endedReason =
-      payload?.message?.call?.endedReason ||
-      payload?.endedReason ||
-      null;
+let endedReason =
+  payload?.message?.call?.endedReason ||
+  payload?.endedReason ||
+  null;
 
-    if (!aiOutcomeExists) {
+// Detect if the customer actually spoke
+const customerSpoke = messages.some(
+  m => m.role === "customer"
+);
 
-      if (!endedReason) {
+if (!aiOutcomeExists) {
 
-        const payloadString = JSON.stringify(payload).toLowerCase();
+  // 1️⃣ Human speech always wins
+  if (customerSpoke) {
 
-        if (payloadString.includes("voicemail"))
-          endedReason = "voicemail";
+    outcome = "Conversation";
 
-        else if (payloadString.includes("silence-timed-out"))
-          endedReason = "silence-timed-out";
+  }
 
-        else if (payloadString.includes("customer-hangup"))
-          endedReason = "customer-hangup";
+  // 2️⃣ Voicemail detected
+  else if (endedReason === "voicemail") {
 
-      }
+    outcome = "STVM";
 
-      if (endedReason === "voicemail")
-        outcome = "STVM";
+  }
 
-      else if (endedReason === "silence-timed-out")
-        outcome = "No Answer";
+  // 3️⃣ Silence timeout
+  else if (endedReason === "silence-timed-out") {
 
-      else if (endedReason === "customer-hangup")
-        outcome = "Call Ended Early";
+    outcome = "No Answer";
 
-      else if (messages.length > 1)
-        outcome = "Conversation";
+  }
 
-      // populate AI fields with N/A when AI did not run
-      callOutcome = "N/A";
-      engagementTier = "N/A";
-      dataQuality = "N/A";
-      finalStatus = "N/A";
-      objectionType = "N/A";
-      callSummary = "N/A";
+  // 4️⃣ Customer hung up before speaking
+  else if (endedReason === "customer-hangup") {
 
-    }
+    outcome = "Call Ended Early";
 
+  }
+
+  // 5️⃣ Long interaction fallback
+  else if (messages.length > 4) {
+
+    outcome = "Conversation";
+
+  }
+
+  // 6️⃣ Default fallback
+  else {
+
+    outcome = "No Answer";
+
+  }
+
+}
 
     // ============================================
     // LAST ATTEMPT UTC
