@@ -61,6 +61,11 @@ app.post("/vapi-webhook", async (req, res) => {
       payload?.assistant_id ||
       payload?.message?.assistant?.id ||
       "unknown";
+    
+    const assistantName =
+      payload?.message?.assistant?.name ||
+      payload?.assistant_name ||
+      "unknown";
 
     const phoneNumber =
       payload?.phone_number ||
