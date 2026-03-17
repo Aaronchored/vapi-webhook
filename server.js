@@ -183,6 +183,7 @@ const customerTurns = messages.filter(m => {
       payload?.message?.artifact?.structuredOutputs || {};
 
     let callOutcome = null;
+    let aiCallDuration = null;
     let engagementTier = null;
     let dataQuality = null;
     let finalStatus = null;
@@ -216,6 +217,10 @@ const customerTurns = messages.filter(m => {
         case "AI_Call_Summary":
           callSummary = item.result;
           break;
+
+      case "AI_Call_Duration":
+        aiCallDuration = item.result;
+        break;
 
       }
 
@@ -258,6 +263,7 @@ const customerTurns = messages.filter(m => {
 
       customerSpoke,
       assistantTurns,
+      customerTurns,
 
       ai: {
         outcome: callOutcome,
@@ -395,8 +401,10 @@ const customerTurns = messages.filter(m => {
       "\n[" + traceId + "] ledgerRowId: " + call.ledgerRowId +
       "\n[" + traceId + "] attemptCount: " + call.attemptCount +
       "\n\n[" + traceId + "] customerSpoke: " + call.customerSpoke +
+      "\n[" + traceId + "] customerTurns: " + call.customerTurns +
       "\n[" + traceId + "] assistantTurns: " + call.assistantTurns +
       "\n\n[" + traceId + "] aiOutcome: " + call.ai.outcome +
+      "\n[" + traceId + "] aiCallDuration: " + aiCallDuration +
       "\n[" + traceId + "] systemOutcome: " + systemOutcome +
       "\n\n[" + traceId + "] recordingUrl: " + recordingUrl +
       "\n[" + traceId + "] lastAttemptUtc: " + lastAttemptUtc +
