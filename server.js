@@ -80,10 +80,7 @@ app.post("/vapi-webhook", async (req, res) => {
     let duration =
       payload?.message?.call?.duration || null;
 
-      // fallback to AI duration if telephony duration missing
-      if (!duration && aiCallDuration) {
-      duration = aiCallDuration;
-      }
+
 
 
     // ============================================
@@ -236,6 +233,14 @@ const customerTurns = messages.filter(m => {
     }
 
     const aiOutcomeExists = callOutcome !== null;
+
+    // ============================================
+    // DURATION FALLBACK
+    // ============================================
+
+if (!duration && aiCallDuration) {
+  duration = aiCallDuration;
+}
 
 
     const recordingUrl =
