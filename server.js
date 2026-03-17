@@ -77,8 +77,12 @@ app.post("/vapi-webhook", async (req, res) => {
     const messages =
       payload?.message?.artifact?.messages || [];
 
-    const duration =
-      payload?.message?.call?.duration || 0;
+    let duration =
+      payload?.message?.call?.duration || null;
+
+      // fallback to AI duration if telephony duration missing
+      if (!duration && aiCallDuration) {
+      duration = aiCallDuration;
 
 
     // ============================================
