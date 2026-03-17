@@ -83,6 +83,7 @@ app.post("/vapi-webhook", async (req, res) => {
       // fallback to AI duration if telephony duration missing
       if (!duration && aiCallDuration) {
       duration = aiCallDuration;
+      }
 
 
     // ============================================
