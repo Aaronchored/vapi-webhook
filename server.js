@@ -229,7 +229,7 @@ const customerTurns = messages.filter(m => {
     }
 
     if (callOutcome === "Do Not Call") {
-      finalStatus = "suppressed";
+      finalStatus = "dnc";
     }
 
     const aiOutcomeExists = callOutcome !== null;
