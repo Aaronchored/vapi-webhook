@@ -5,6 +5,39 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 // ============================================
+// HELPER — SYDNEY TIME + ATTEMPTS
+// ============================================
+
+function buildAttemptMetadata(attemptCount, utcIso) {
+
+  const current = parseInt(attemptCount || "0", 10);
+  const attempt_count_new = current + 1;
+
+  const d = new Date(utcIso || new Date().toISOString());
+
+  const sydParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(d);
+
+  const get = (t) => sydParts.find(p => p.type === t)?.value;
+
+  return {
+    attempt_count_new,
+    last_attempt_at_syd:
+      `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`,
+    last_called_date_pipedrive:
+      `${get("year")}-${get("month")}-${get("day")}`
+  };
+}
+
+// ============================================
 // DUPLICATE WEBHOOK PROTECTION
 // ============================================
 
@@ -52,25 +85,11 @@ app.post("/vapi-webhook", async (req, res) => {
 
     processedCalls.set(callId, Date.now());
 
-
-    // ============================================
-    // BASIC CALL DATA
-    // ============================================
-
-    const assistantId =
-      payload?.assistant_id ||
-      payload?.message?.assistant?.id ||
-      "unknown";
-
     const assistantName =
       payload?.message?.assistant?.name ||
-      payload?.assistant_name ||
       "unknown";
 
     const phoneNumber =
-      payload?.phone_number ||
-      payload?.message?.call?.phoneNumber ||
-      payload?.message?.customer?.number ||
       payload?.message?.call?.customer?.number ||
       "unknown";
 
@@ -80,373 +99,207 @@ app.post("/vapi-webhook", async (req, res) => {
     let duration =
       payload?.message?.call?.duration || null;
 
-
-
-
-    // ============================================
-    // PARSE CALL NAME (personId|dealId|ledgerRowId|attemptCount)
-    // ============================================
-
+    // PARSE METADATA
     let personId = null;
     let dealId = null;
     let ledgerRowId = null;
     let attemptCount = null;
 
     try {
-
-      const callName =
-        payload?.message?.call?.name || "";
-
-      const parts = callName.split("|").map(p => p.trim());
+      const parts =
+        (payload?.message?.call?.name || "")
+          .split("|")
+          .map(p => p.trim());
 
       personId = parts[0] || null;
       dealId = parts[1] || null;
       ledgerRowId = parts[2] ? Number(parts[2]) : null;
-
-      if (parts[3]) {
-        const parsed = Number(parts[3]);
-        attemptCount = Number.isNaN(parsed) ? null : parsed;
-      }
-
+      attemptCount = parts[3] ? Number(parts[3]) : null;
     } catch {}
 
+    // PHONE
+    const digits = phoneNumber.replace(/\D/g, "");
+    const phoneLocal = digits.startsWith("614")
+      ? "0" + digits.slice(2)
+      : digits;
 
-    // ============================================
-    // PHONE FORMATTING
-    // ============================================
+    // MESSAGE ANALYSIS
+    const customerSpoke = messages.some(m =>
+      ["customer","user"].includes((m.role || "").toLowerCase())
+    );
 
-    let phoneLocal = null;
-    let phoneE164 = null;
+    const assistantTurns = messages.filter(m =>
+      ["assistant","bot"].includes((m.role || "").toLowerCase())
+    ).length;
 
-    if (typeof phoneNumber === "string") {
+    const customerTurns = messages.filter(m =>
+      ["customer","user"].includes((m.role || "").toLowerCase())
+    ).length;
 
-      const digits = phoneNumber.replace(/\D/g, "");
-
-      if (digits.startsWith("614")) {
-        phoneLocal = "0" + digits.slice(2);
-        phoneE164 = "+" + digits;
-      }
-
-      else if (digits.startsWith("04")) {
-        phoneLocal = digits;
-        phoneE164 = "+61" + digits.slice(1);
-      }
-
-    }
-
-
-// ============================================
-// CUSTOMER / ASSISTANT DETECTION (VAPI FORMAT)
-// ============================================
-
-// detect if the caller actually spoke
-const customerSpoke = messages.some(m => {
-
-  const role = (m.role || "").toLowerCase();
-
-  const roles = ["customer", "user", "caller", "human"];
-
-  const text =
-    (m.message || m.content || m.text || "").toString().trim();
-
-  return roles.includes(role) && text.length > 0;
-
-});
-
-// count assistant speech turns
-const assistantTurns = messages.filter(m => {
-
-  const role = (m.role || "").toLowerCase();
-
-  const text =
-    (m.message || m.content || m.text || "").toString().trim();
-
-  return ["assistant","bot"].includes(role) && text.length > 0;
-
-}).length;
-
-// count customer speech turns
-const customerTurns = messages.filter(m => {
-
-  const role = (m.role || "").toLowerCase();
-
-  const text =
-    (m.message || m.content || m.text || "").toString().trim();
-
-  return ["customer","user","caller","human"].includes(role) && text.length > 0;
-
-}).length;
-
-    // ============================================
-    // AI OUTPUTS (VAPI FORMAT)
-    // ============================================
-
-    const structuredOutputs =
-      payload?.message?.artifact?.structuredOutputs || {};
+    // AI OUTPUTS
+    const outputs = payload?.message?.artifact?.structuredOutputs || {};
 
     let callOutcome = null;
-    let aiCallDuration = null;
+    let callSummary = null;
     let engagementTier = null;
     let dataQuality = null;
-    let finalStatus = null;
-    let objectionType = null;
-    let callSummary = null;
 
-    for (const key in structuredOutputs) {
+    for (const key in outputs) {
+      const item = outputs[key];
+      if (!item) continue;
 
-      const item = structuredOutputs[key];
-
-      if (!item || !item.name) continue;
-
-      switch (item.name) {
-
-        case "AI_Call_Outcome":
-          callOutcome = item.result;
-          break;
-
-        case "Engagement_Tier":
-          engagementTier = item.result;
-          break;
-
-        case "Data_Quality":
-          dataQuality = item.result;
-          break;
-
-        case "AI_Objection_Type":
-          objectionType = item.result;
-          break;
-
-        case "AI_Call_Summary":
-          callSummary = item.result;
-          break;
-
-      case "AI_Call_Duration":
-        aiCallDuration = item.result;
-        break;
-
-      }
-
-    }
-
-    if (callOutcome === "Do Not Call") {
-      finalStatus = "dnc";
+      if (item.name === "AI_Call_Outcome") callOutcome = item.result;
+      if (item.name === "AI_Call_Summary") callSummary = item.result;
+      if (item.name === "Engagement_Tier") engagementTier = item.result;
+      if (item.name === "Data_Quality") dataQuality = item.result;
     }
 
     const aiOutcomeExists = callOutcome !== null;
+    let finalOutcome = aiOutcomeExists ? callOutcome : null;
 
-    // ============================================
-    // DURATION FALLBACK
-    // ============================================
+    // TELEPHONY FALLBACK
+    let systemOutcome = null;
 
-if (!duration && aiCallDuration) {
-  duration = aiCallDuration;
-}
+    if (!callOutcome) {
+      if (customerSpoke) systemOutcome = "Conversation";
+      else systemOutcome = "No Answer";
+    }
 
+    if (!finalOutcome) finalOutcome = systemOutcome;
 
     const recordingUrl =
-      payload?.message?.call?.recordingUrl ||
-      payload?.message?.artifact?.recordingUrl ||
-      null;
+      payload?.message?.call?.recordingUrl || null;
 
-
-    // ============================================
-    // NORMALIZED CALL OBJECT
-    // ============================================
+    const lastAttemptUtc = new Date().toISOString();
 
     const call = {
-
       id: callId,
-
-      assistantId,
       assistantName,
-
       personId,
       dealId,
       ledgerRowId,
       attemptCount,
-
       phoneLocal,
-      phoneE164,
-
       duration,
-      messages,
-
       customerSpoke,
       assistantTurns,
       customerTurns,
-
       ai: {
-        outcome: callOutcome,
-        engagement: engagementTier,
-        dataQuality,
-        objection: objectionType,
         summary: callSummary,
-        finalStatus
-      },
-
-      telephony: {
-        endedReason:
-          payload?.message?.call?.endedReason ||
-          payload?.endedReason ||
-          null
+        engagement: engagementTier,
+        dataQuality
       }
-
     };
 
-
     // ============================================
-    // TELEPHONY CLASSIFICATION
-    // ============================================
-
-    let systemOutcome = null;
-
-    if (!call.ai.outcome) {
-
-      if (call.customerSpoke) {
-        systemOutcome = "Conversation";
-      }
-
-      else if (call.telephony.endedReason === "voicemail") {
-        systemOutcome = "STVM";
-      }
-
-      else if (call.telephony.endedReason === "silence-timed-out") {
-        systemOutcome = "No Answer";
-      }
-
-      else if (call.telephony.endedReason === "customer-hangup") {
-        systemOutcome = "Call Ended Early";
-      }
-
-      else if (call.messages.length > 4) {
-        systemOutcome = "Conversation";
-      }
-
-      else {
-        systemOutcome = "No Answer";
-      }
-
-    }
-
-
-    // ============================================
-    // LAST ATTEMPT UTC
+    // 🔥 NEW ROUTER (REPLACES ZAP)
     // ============================================
 
-    const now = new Date();
-    const launchTime = new Date(now.getTime() - call.duration * 1000);
-    const lastAttemptUtc = launchTime.toISOString();
+    await routeCallResult({
+      call,
+      finalOutcome,
+      recordingUrl,
+      lastAttemptUtc
+    });
 
-
-    // ============================================
-    // TRIGGER ZAP
-    // ============================================
-
-    let zapStatus = "not_sent";
-
-    const zapWebhook = process.env.ZAP_3_WEBHOOK;
-
-    if (zapWebhook) {
-
-      try {
-
-        const zapResponse = await fetch(zapWebhook, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-
-            personId: call.personId,
-            dealId: call.dealId,
-            ledgerRowId: call.ledgerRowId,
-            attemptCount: call.attemptCount,
-
-            phoneLocal: call.phoneLocal,
-            phoneE164: call.phoneE164,
-
-            callId: call.id,
-            assistantId: call.assistantId,
-            assistantName: call.assistantName,
-
-            duration: call.duration,
-            systemOutcome: systemOutcome,
-            aiOutcomeDetected: aiOutcomeExists,
-
-            callOutcome: call.ai.outcome,
-            engagementTier: call.ai.engagement,
-            dataQuality: call.ai.dataQuality,
-            finalStatus: call.ai.finalStatus,
-            objectionType: call.ai.objection,
-            callSummary: call.ai.summary,
-
-            recordingUrl,
-            lastAttemptUtc
-
-          })
-        });
-
-        zapStatus = zapResponse.status;
-
-      }
-
-      catch {
-
-        zapStatus = "failed";
-
-      }
-
-    }
-
-
-    // ============================================
-    // CLEAN REPORT BLOCK
-    // ============================================
-
-    const report =
-      "\n[" + traceId + "] =================================" +
-      "\n[" + traceId + "] FINAL CALL REPORT\n" +
-      "\n[" + traceId + "] callId: " + call.id +
-      "\n[" + traceId + "] assistant: " + call.assistantName +
-      "\n\n[" + traceId + "] personId: " + call.personId +
-      "\n[" + traceId + "] dealId: " + call.dealId +
-      "\n[" + traceId + "] ledgerRowId: " + call.ledgerRowId +
-      "\n[" + traceId + "] attemptCount: " + call.attemptCount +
-      "\n\n[" + traceId + "] customerSpoke: " + call.customerSpoke +
-      "\n[" + traceId + "] customerTurns: " + call.customerTurns +
-      "\n[" + traceId + "] assistantTurns: " + call.assistantTurns +
-      "\n\n[" + traceId + "] aiOutcome: " + call.ai.outcome +
-      "\n[" + traceId + "] aiCallDuration: " + aiCallDuration +
-      "\n[" + traceId + "] systemOutcome: " + systemOutcome +
-      "\n\n[" + traceId + "] recordingUrl: " + recordingUrl +
-      "\n[" + traceId + "] lastAttemptUtc: " + lastAttemptUtc +
-      "\n\n[" + traceId + "] Zap response: " + zapStatus +
-      "\n\n[" + traceId + "] =================================";
-
-    console.log(report);
+    console.log(`[${traceId}] processed via backend`);
 
     res.sendStatus(200);
 
-  }
-
-  catch (error) {
-
-    console.error("Webhook processing error:", error);
+  } catch (err) {
+    console.error(err);
     res.sendStatus(500);
-
   }
-
 });
 
 
 // ============================================
-// HEALTH CHECK
+// ROUTER
+// ============================================
+
+async function routeCallResult({ call, finalOutcome, recordingUrl, lastAttemptUtc }) {
+
+  const attemptMeta = buildAttemptMetadata(
+    call.attemptCount,
+    lastAttemptUtc
+  );
+
+  await upsertLedgerRow({ call, finalOutcome, attemptMeta, recordingUrl });
+  await updatePipedrive({ call, finalOutcome, attemptMeta, recordingUrl });
+
+  if (finalOutcome === "Interested") {
+    await sendSMS({ call, finalOutcome, attemptMeta, recordingUrl });
+  }
+}
+
+
+// ============================================
+// GOOGLE SHEETS LOGIC (LOG ONLY)
+// ============================================
+
+async function upsertLedgerRow(ctx) {
+  if (ctx.call.ledgerRowId) {
+    return updateLedgerRow(ctx);
+  }
+  return createLedgerRow(ctx);
+}
+
+async function updateLedgerRow({ call, finalOutcome, attemptMeta, recordingUrl }) {
+
+  console.log("UPDATE ROW", {
+    row: call.ledgerRowId,
+    outcome: finalOutcome,
+    attempt: attemptMeta.attempt_count_new
+  });
+
+}
+
+async function createLedgerRow({ call, finalOutcome, attemptMeta, recordingUrl }) {
+
+  console.log("CREATE ROW", {
+    phone: call.phoneLocal,
+    outcome: finalOutcome
+  });
+
+}
+
+
+// ============================================
+// PIPEDRIVE (LOG ONLY)
+// ============================================
+
+async function updatePipedrive({ call, finalOutcome, attemptMeta }) {
+
+  console.log("PIPEDRIVE UPDATE", {
+    dealId: call.dealId,
+    outcome: finalOutcome
+  });
+
+}
+
+
+// ============================================
+// SMS (LOG ONLY)
+// ============================================
+
+async function sendSMS({ call, finalOutcome, attemptMeta, recordingUrl }) {
+
+  console.log("SMS TRIGGERED", {
+    phone: call.phoneLocal,
+    outcome: finalOutcome
+  });
+
+}
+
+
+// ============================================
+// SERVER
 // ============================================
 
 app.get("/", (req, res) => {
   res.send("Server running");
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Webhook server running on port " + PORT);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running");
 });
