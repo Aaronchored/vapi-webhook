@@ -542,3 +542,43 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Webhook server running on port " + PORT);
 });
+
+// ============================================
+// SEND TO ZAP 2 PART 2
+// ============================================
+
+const zapHook = "https://hooks.zapier.com/hooks/catch/25227143/upyswdd/";
+
+await fetch(zapHook, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    personId: call.personId,
+    dealId: call.dealId,
+    ledgerRowId: call.ledgerRowId,
+    attemptCount: call.attemptCount,
+
+    phoneLocal: call.phoneLocal,
+    phoneE164: call.phoneE164,
+
+    callId: call.id,
+    assistantName: call.assistantName,
+
+    duration: call.duration,
+    systemOutcome: systemOutcome,
+    aiOutcomeDetected: aiOutcomeExists,
+
+    callOutcome: call.ai.outcome,
+    finalOutcome: finalOutcome,
+
+    engagementTier: call.ai.engagement,
+    dataQuality: call.ai.dataQuality,
+    finalStatus: call.ai.finalStatus,
+    callSummary: call.ai.summary,
+
+    recordingUrl,
+    lastAttemptUtc
+  })
+});
