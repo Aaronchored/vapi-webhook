@@ -428,41 +428,43 @@ async function routeCallResult({
   // SEND TO ZAP 2 PART 2
   // ============================================
 
-  const zapHook = "https://hooks.zapier.com/hooks/catch/25227143/upyswdd/";
+  const zapHook = process.env.ZAP_2_PART_2_WEBHOOK;
 
-  await fetch(zapHook, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      personId: call.personId,
-      dealId: call.dealId,
-      ledgerRowId: call.ledgerRowId,
-      attemptCount: call.attemptCount,
+  if (zapHook) {
+    await fetch(zapHook, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        personId: call.personId,
+        dealId: call.dealId,
+        ledgerRowId: call.ledgerRowId,
+        attemptCount: call.attemptCount,
 
-      phoneLocal: call.phoneLocal,
-      phoneE164: call.phoneE164,
+        phoneLocal: call.phoneLocal,
+        phoneE164: call.phoneE164,
 
-      callId: call.id,
-      assistantName: call.assistantName,
+        callId: call.id,
+        assistantName: call.assistantName,
 
-      duration: call.duration,
-      systemOutcome: systemOutcome,
-      aiOutcomeDetected: aiOutcomeExists,
+        duration: call.duration,
+        systemOutcome: systemOutcome,
+        aiOutcomeDetected: aiOutcomeExists,
 
-      callOutcome: call.ai.outcome,
-      finalOutcome: finalOutcome,
+        callOutcome: call.ai.outcome,
+        finalOutcome: finalOutcome,
 
-      engagementTier: call.ai.engagement,
-      dataQuality: call.ai.dataQuality,
-      finalStatus: call.ai.finalStatus,
-      callSummary: call.ai.summary,
+        engagementTier: call.ai.engagement,
+        dataQuality: call.ai.dataQuality,
+        finalStatus: call.ai.finalStatus,
+        callSummary: call.ai.summary,
 
-      recordingUrl,
-      lastAttemptUtc
-    })
-  });
+        recordingUrl,
+        lastAttemptUtc
+      })
+    });
+  }
 }
 
 // ============================================
