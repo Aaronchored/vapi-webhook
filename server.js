@@ -61,7 +61,10 @@ app.post("/vapi-webhook", async (req, res) => {
 
   try {
 
+    console.log("WEBHOOK HIT");
+
     const payload = req.body || {};
+    
     const eventType = payload?.message?.type || "unknown";
 
     if (eventType !== "end-of-call-report") {
