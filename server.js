@@ -156,34 +156,34 @@ app.post("/vapi-webhook", async (req, res) => {
       }
     }
 
-    // ============================================
-    // CUSTOMER / ASSISTANT DETECTION
-    // ============================================
+ // ============================================
+// CUSTOMER / ASSISTANT DETECTION (FIXED)
+// ============================================
 
-    const customerSpoke = messages.some(m => {
-      const role = (m.role || "").toLowerCase();
-      const roles = ["customer", "user", "caller", "human"];
-      const text =
-        (m.message || m.content || m.text || "").toString().trim();
+const HUMAN_ROLES = ["customer", "caller", "human"];
+const ASSISTANT_ROLES = ["assistant", "bot"];
 
-      return roles.includes(role) && text.length > 0;
-    });
+function getText(m) {
+  return (m.message || m.content || m.text || "").toString().trim();
+}
 
-    const assistantTurns = messages.filter(m => {
-      const role = (m.role || "").toLowerCase();
-      const text =
-        (m.message || m.content || m.text || "").toString().trim();
+function isMeaningful(text) {
+  if (!text) return false;
+  const t = text.toLowerCase().trim();
+  return !["silence", "[silence]", "noise", "[noise]", "..."].includes(t);
+}
 
-      return ["assistant", "bot"].includes(role) && text.length > 0;
-    }).length;
+const assistantTurns = messages.filter(m => {
+  const role = (m.role || "").toLowerCase();
+  return ASSISTANT_ROLES.includes(role) && getText(m);
+}).length;
 
-    const customerTurns = messages.filter(m => {
-      const role = (m.role || "").toLowerCase();
-      const text =
-        (m.message || m.content || m.text || "").toString().trim();
+const customerTurns = messages.filter(m => {
+  const role = (m.role || "").toLowerCase();
+  return HUMAN_ROLES.includes(role) && isMeaningful(getText(m));
+}).length;
 
-      return ["customer", "user", "caller", "human"].includes(role) && text.length > 0;
-    }).length;
+const customerSpoke = customerTurns > 0;
 
     // ============================================
     // AI OUTPUTS
@@ -294,32 +294,30 @@ app.post("/vapi-webhook", async (req, res) => {
       }
     };
 
-    // ============================================
-    // TELEPHONY CLASSIFICATION
-    // ============================================
+   // ============================================
+// TELEPHONY CLASSIFICATION (FIXED)
+// ============================================
 
-    let systemOutcome = null;
+let systemOutcome = null;
 
-    if (!call.ai.outcome) {
-      if (call.customerSpoke) {
-        systemOutcome = "Conversation";
-      } else if (call.telephony.endedReason === "voicemail") {
-        systemOutcome = "STVM";
-      } else if (call.telephony.endedReason === "silence-timed-out") {
-        systemOutcome = "No Answer";
-      } else if (call.telephony.endedReason === "customer-hangup") {
-        systemOutcome = "Call Ended Early";
-      } else if (call.messages.length > 4) {
-        systemOutcome = "Conversation";
-      } else {
-        systemOutcome = "No Answer";
-      }
-    }
+if (!call.ai.outcome) {
+  const ended = call.telephony.endedReason;
 
-    if (!finalOutcome) {
-      finalOutcome = systemOutcome;
-    }
-
+  if (ended === "voicemail") {
+    systemOutcome = "STVM";
+  } 
+  else if (ended === "silence-timed-out") {
+    systemOutcome = "No Answer";
+  } 
+  else if (ended === "customer-hangup") {
+    systemOutcome = customerTurns > 0
+      ? "Call Ended Early"
+      : "No Answer";
+  } 
+  else {
+    systemOutcome = "No Answer";
+  }
+}
     // ============================================
     // LAST ATTEMPT UTC
     // ============================================
