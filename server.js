@@ -9,7 +9,6 @@ app.use(express.json({ limit: "1mb" }));
 // ============================================
 
 function buildAttemptMetadata(attemptCount, utcIso) {
-
   const current = parseInt(attemptCount || "0", 10);
   const attempt_count_new = current + 1;
 
@@ -52,19 +51,15 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-
 // ============================================
 // VAPI WEBHOOK
 // ============================================
 
 app.post("/vapi-webhook", async (req, res) => {
-
   try {
-
     console.log("WEBHOOK HIT");
 
     const payload = req.body || {};
-    
     const eventType = payload?.message?.type || "unknown";
 
     if (eventType !== "end-of-call-report") {
@@ -88,11 +83,24 @@ app.post("/vapi-webhook", async (req, res) => {
 
     processedCalls.set(callId, Date.now());
 
+    // ============================================
+    // BASIC CALL DATA
+    // ============================================
+
+    const assistantId =
+      payload?.assistant_id ||
+      payload?.message?.assistant?.id ||
+      "unknown";
+
     const assistantName =
       payload?.message?.assistant?.name ||
+      payload?.assistant_name ||
       "unknown";
 
     const phoneNumber =
+      payload?.phone_number ||
+      payload?.message?.call?.phoneNumber ||
+      payload?.message?.customer?.number ||
       payload?.message?.call?.customer?.number ||
       "unknown";
 
@@ -102,142 +110,323 @@ app.post("/vapi-webhook", async (req, res) => {
     let duration =
       payload?.message?.call?.duration || null;
 
-    // PARSE METADATA
+    // ============================================
+    // PARSE CALL NAME (personId|dealId|ledgerRowId|attemptCount)
+    // ============================================
+
     let personId = null;
     let dealId = null;
     let ledgerRowId = null;
     let attemptCount = null;
 
     try {
-      const parts =
-        (payload?.message?.call?.name || "")
-          .split("|")
-          .map(p => p.trim());
+      const callName =
+        payload?.message?.call?.name || "";
+
+      const parts = callName.split("|").map(p => p.trim());
 
       personId = parts[0] || null;
       dealId = parts[1] || null;
       ledgerRowId = parts[2] ? Number(parts[2]) : null;
-      attemptCount = parts[3] ? Number(parts[3]) : null;
+
+      if (parts[3]) {
+        const parsed = Number(parts[3]);
+        attemptCount = Number.isNaN(parsed) ? null : parsed;
+      }
     } catch {}
 
-    // PHONE
-    const digits = phoneNumber.replace(/\D/g, "");
-    const phoneLocal = digits.startsWith("614")
-      ? "0" + digits.slice(2)
-      : digits;
+    // ============================================
+    // PHONE FORMATTING
+    // ============================================
 
-    // MESSAGE ANALYSIS
-    const customerSpoke = messages.some(m =>
-      ["customer","user"].includes((m.role || "").toLowerCase())
-    );
+    let phoneLocal = null;
+    let phoneE164 = null;
 
-    const assistantTurns = messages.filter(m =>
-      ["assistant","bot"].includes((m.role || "").toLowerCase())
-    ).length;
+    if (typeof phoneNumber === "string") {
+      const digits = phoneNumber.replace(/\D/g, "");
 
-    const customerTurns = messages.filter(m =>
-      ["customer","user"].includes((m.role || "").toLowerCase())
-    ).length;
+      if (digits.startsWith("614")) {
+        phoneLocal = "0" + digits.slice(2);
+        phoneE164 = "+" + digits;
+      } else if (digits.startsWith("04")) {
+        phoneLocal = digits;
+        phoneE164 = "+61" + digits.slice(1);
+      } else {
+        phoneLocal = digits;
+      }
+    }
 
+    // ============================================
+    // CUSTOMER / ASSISTANT DETECTION
+    // ============================================
+
+    const customerSpoke = messages.some(m => {
+      const role = (m.role || "").toLowerCase();
+      const roles = ["customer", "user", "caller", "human"];
+      const text =
+        (m.message || m.content || m.text || "").toString().trim();
+
+      return roles.includes(role) && text.length > 0;
+    });
+
+    const assistantTurns = messages.filter(m => {
+      const role = (m.role || "").toLowerCase();
+      const text =
+        (m.message || m.content || m.text || "").toString().trim();
+
+      return ["assistant", "bot"].includes(role) && text.length > 0;
+    }).length;
+
+    const customerTurns = messages.filter(m => {
+      const role = (m.role || "").toLowerCase();
+      const text =
+        (m.message || m.content || m.text || "").toString().trim();
+
+      return ["customer", "user", "caller", "human"].includes(role) && text.length > 0;
+    }).length;
+
+    // ============================================
     // AI OUTPUTS
-    const outputs = payload?.message?.artifact?.structuredOutputs || {};
+    // ============================================
+
+    const structuredOutputs =
+      payload?.message?.artifact?.structuredOutputs || {};
 
     let callOutcome = null;
-    let callSummary = null;
+    let aiCallDuration = null;
     let engagementTier = null;
     let dataQuality = null;
+    let finalStatus = null;
+    let objectionType = null;
+    let callSummary = null;
 
-    for (const key in outputs) {
-      const item = outputs[key];
-      if (!item) continue;
+    for (const key in structuredOutputs) {
+      const item = structuredOutputs[key];
 
-      if (item.name === "AI_Call_Outcome") callOutcome = item.result;
-      if (item.name === "AI_Call_Summary") callSummary = item.result;
-      if (item.name === "Engagement_Tier") engagementTier = item.result;
-      if (item.name === "Data_Quality") dataQuality = item.result;
+      if (!item || !item.name) continue;
+
+      switch (item.name) {
+        case "AI_Call_Outcome":
+          callOutcome = item.result;
+          break;
+
+        case "Engagement_Tier":
+          engagementTier = item.result;
+          break;
+
+        case "Data_Quality":
+          dataQuality = item.result;
+          break;
+
+        case "AI_Objection_Type":
+          objectionType = item.result;
+          break;
+
+        case "AI_Call_Summary":
+          callSummary = item.result;
+          break;
+
+        case "AI_Call_Duration":
+          aiCallDuration = item.result;
+          break;
+      }
+    }
+
+    if (callOutcome === "Do Not Call") {
+      finalStatus = "dnc";
     }
 
     const aiOutcomeExists = callOutcome !== null;
     let finalOutcome = aiOutcomeExists ? callOutcome : null;
 
-    // TELEPHONY FALLBACK
-    let systemOutcome = null;
+    // ============================================
+    // DURATION FALLBACK
+    // ============================================
 
-    if (!callOutcome) {
-      if (customerSpoke) systemOutcome = "Conversation";
-      else systemOutcome = "No Answer";
+    if (!duration && aiCallDuration) {
+      duration = aiCallDuration;
     }
 
-    if (!finalOutcome) finalOutcome = systemOutcome;
-
     const recordingUrl =
-      payload?.message?.call?.recordingUrl || null;
+      payload?.message?.call?.recordingUrl ||
+      payload?.message?.artifact?.recordingUrl ||
+      null;
 
-    const lastAttemptUtc = new Date().toISOString();
+    // ============================================
+    // NORMALIZED CALL OBJECT
+    // ============================================
 
     const call = {
       id: callId,
+
+      assistantId,
       assistantName,
+
       personId,
       dealId,
       ledgerRowId,
       attemptCount,
+
       phoneLocal,
+      phoneE164,
+
       duration,
+      messages,
+
       customerSpoke,
       assistantTurns,
       customerTurns,
+
       ai: {
-        summary: callSummary,
+        outcome: callOutcome,
         engagement: engagementTier,
-        dataQuality
+        dataQuality,
+        objection: objectionType,
+        summary: callSummary,
+        finalStatus
+      },
+
+      telephony: {
+        endedReason:
+          payload?.message?.call?.endedReason ||
+          payload?.endedReason ||
+          null
       }
     };
 
     // ============================================
-    // 🔥 NEW ROUTER (REPLACES ZAP)
+    // TELEPHONY CLASSIFICATION
+    // ============================================
+
+    let systemOutcome = null;
+
+    if (!call.ai.outcome) {
+      if (call.customerSpoke) {
+        systemOutcome = "Conversation";
+      } else if (call.telephony.endedReason === "voicemail") {
+        systemOutcome = "STVM";
+      } else if (call.telephony.endedReason === "silence-timed-out") {
+        systemOutcome = "No Answer";
+      } else if (call.telephony.endedReason === "customer-hangup") {
+        systemOutcome = "Call Ended Early";
+      } else if (call.messages.length > 4) {
+        systemOutcome = "Conversation";
+      } else {
+        systemOutcome = "No Answer";
+      }
+    }
+
+    if (!finalOutcome) {
+      finalOutcome = systemOutcome;
+    }
+
+    // ============================================
+    // LAST ATTEMPT UTC
+    // ============================================
+
+    const now = new Date();
+    const safeDuration = Number(call.duration) || 0;
+    const launchTime = new Date(now.getTime() - safeDuration * 1000);
+    const lastAttemptUtc = launchTime.toISOString();
+
+    // ============================================
+    // NEW ROUTER (REPLACES ZAP 3)
     // ============================================
 
     await routeCallResult({
       call,
       finalOutcome,
+      systemOutcome,
+      aiOutcomeExists,
       recordingUrl,
       lastAttemptUtc
     });
 
-    console.log(`[${traceId}] processed via backend`);
+    // ============================================
+    // CLEAN REPORT BLOCK
+    // ============================================
+
+    const report =
+      "\n[" + traceId + "] =================================" +
+      "\n[" + traceId + "] FINAL CALL REPORT\n" +
+      "\n[" + traceId + "] callId: " + call.id +
+      "\n[" + traceId + "] assistant: " + call.assistantName +
+      "\n\n[" + traceId + "] personId: " + call.personId +
+      "\n[" + traceId + "] dealId: " + call.dealId +
+      "\n[" + traceId + "] ledgerRowId: " + call.ledgerRowId +
+      "\n[" + traceId + "] attemptCount: " + call.attemptCount +
+      "\n\n[" + traceId + "] phoneLocal: " + call.phoneLocal +
+      "\n[" + traceId + "] phoneE164: " + call.phoneE164 +
+      "\n\n[" + traceId + "] customerSpoke: " + call.customerSpoke +
+      "\n[" + traceId + "] customerTurns: " + call.customerTurns +
+      "\n[" + traceId + "] assistantTurns: " + call.assistantTurns +
+      "\n\n[" + traceId + "] aiOutcome: " + call.ai.outcome +
+      "\n[" + traceId + "] aiCallDuration: " + aiCallDuration +
+      "\n[" + traceId + "] systemOutcome: " + systemOutcome +
+      "\n[" + traceId + "] finalOutcome: " + finalOutcome +
+      "\n\n[" + traceId + "] recordingUrl: " + recordingUrl +
+      "\n[" + traceId + "] lastAttemptUtc: " + lastAttemptUtc +
+      "\n\n[" + traceId + "] processed via backend" +
+      "\n\n[" + traceId + "] =================================";
+
+    console.log(report);
 
     res.sendStatus(200);
-
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Webhook processing error:", error);
     res.sendStatus(500);
   }
 });
-
 
 // ============================================
 // ROUTER
 // ============================================
 
-async function routeCallResult({ call, finalOutcome, recordingUrl, lastAttemptUtc }) {
-
+async function routeCallResult({
+  call,
+  finalOutcome,
+  systemOutcome,
+  aiOutcomeExists,
+  recordingUrl,
+  lastAttemptUtc
+}) {
   const attemptMeta = buildAttemptMetadata(
     call.attemptCount,
     lastAttemptUtc
   );
 
-  await upsertLedgerRow({ call, finalOutcome, attemptMeta, recordingUrl });
-  await updatePipedrive({ call, finalOutcome, attemptMeta, recordingUrl });
+  await upsertLedgerRow({
+    call,
+    finalOutcome,
+    systemOutcome,
+    aiOutcomeExists,
+    attemptMeta,
+    recordingUrl,
+    lastAttemptUtc
+  });
+
+  await updatePipedrive({
+    call,
+    finalOutcome,
+    systemOutcome,
+    aiOutcomeExists,
+    attemptMeta,
+    recordingUrl,
+    lastAttemptUtc
+  });
 
   if (finalOutcome === "Interested") {
-    await sendSMS({ call, finalOutcome, attemptMeta, recordingUrl });
+    await sendSMS({
+      call,
+      finalOutcome,
+      attemptMeta,
+      recordingUrl
+    });
   }
 }
 
-
 // ============================================
-// GOOGLE SHEETS LOGIC (LOG ONLY)
+// GOOGLE SHEETS LOGIC (LOG ONLY FOR NOW)
 // ============================================
 
 async function upsertLedgerRow(ctx) {
@@ -247,62 +436,109 @@ async function upsertLedgerRow(ctx) {
   return createLedgerRow(ctx);
 }
 
-async function updateLedgerRow({ call, finalOutcome, attemptMeta, recordingUrl }) {
-
+async function updateLedgerRow({
+  call,
+  finalOutcome,
+  attemptMeta,
+  recordingUrl,
+  lastAttemptUtc
+}) {
   console.log("UPDATE ROW", {
     row: call.ledgerRowId,
+    phone: call.phoneLocal,
     outcome: finalOutcome,
-    attempt: attemptMeta.attempt_count_new
+    attempt: attemptMeta.attempt_count_new,
+    last_attempt_at_utc: lastAttemptUtc,
+    last_attempt_at_syd: attemptMeta.last_attempt_at_syd,
+    call_connected: call.customerSpoke ? "yes" : "no",
+    duration: call.duration,
+    engagement_tier: call.ai.engagement,
+    data_quality: call.ai.dataQuality,
+    final_status: call.ai.finalStatus,
+    call_summary: call.ai.summary,
+    vapi_call_id: call.id,
+    recording_url: recordingUrl,
+    assistant_name: call.assistantName
   });
-
 }
 
-async function createLedgerRow({ call, finalOutcome, attemptMeta, recordingUrl }) {
-
+async function createLedgerRow({
+  call,
+  finalOutcome,
+  attemptMeta,
+  recordingUrl,
+  lastAttemptUtc
+}) {
   console.log("CREATE ROW", {
     phone: call.phoneLocal,
-    outcome: finalOutcome
+    outcome: finalOutcome,
+    attempt: 1,
+    last_attempt_at_utc: lastAttemptUtc,
+    last_attempt_at_syd: attemptMeta.last_attempt_at_syd,
+    call_connected: call.customerSpoke ? "yes" : "no",
+    duration: call.duration,
+    engagement_tier: call.ai.engagement,
+    data_quality: call.ai.dataQuality,
+    final_status: call.ai.finalStatus,
+    call_summary: call.ai.summary,
+    vapi_call_id: call.id,
+    recording_url: recordingUrl,
+    assistant_name: call.assistantName
   });
-
 }
 
-
 // ============================================
-// PIPEDRIVE (LOG ONLY)
+// PIPEDRIVE (LOG ONLY FOR NOW)
 // ============================================
 
-async function updatePipedrive({ call, finalOutcome, attemptMeta }) {
-
+async function updatePipedrive({
+  call,
+  finalOutcome,
+  attemptMeta,
+  recordingUrl
+}) {
   console.log("PIPEDRIVE UPDATE", {
     dealId: call.dealId,
-    outcome: finalOutcome
+    personId: call.personId,
+    phone: call.phoneLocal,
+    outcome: finalOutcome,
+    duration: call.duration,
+    summary: call.ai.summary,
+    recordingUrl,
+    last_called_date: attemptMeta.last_called_date_pipedrive
   });
-
 }
 
-
 // ============================================
-// SMS (LOG ONLY)
+// SMS (LOG ONLY FOR NOW)
 // ============================================
 
-async function sendSMS({ call, finalOutcome, attemptMeta, recordingUrl }) {
-
+async function sendSMS({
+  call,
+  finalOutcome,
+  attemptMeta,
+  recordingUrl
+}) {
   console.log("SMS TRIGGERED", {
     phone: call.phoneLocal,
-    outcome: finalOutcome
+    outcome: finalOutcome,
+    last_called: attemptMeta.last_attempt_at_syd,
+    duration: call.duration,
+    summary: call.ai.summary,
+    recordingUrl
   });
-
 }
 
-
 // ============================================
-// SERVER
+// HEALTH CHECK
 // ============================================
 
 app.get("/", (req, res) => {
   res.send("Server running");
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Webhook server running on port " + PORT);
 });
